@@ -1,8 +1,8 @@
 # Meeting Vault
 
-Meeting Vault e um aplicativo desktop Windows para gravar reunioes, salvar o video localmente, transcrever audio e gerar resumos executivos com proximas acoes e decisoes.
+Meeting Vault e um aplicativo desktop Windows para gravar reunioes, salvar o video localmente e transcrever o audio com privacidade.
 
-O produto e local-first: o modo principal usa ferramentas locais como FFmpeg, whisper.cpp e llama.cpp. Tambem existe modo API e modo hibrido para fallback quando uma chave estiver configurada.
+O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e whisper.cpp. Tambem existe modo API e modo hibrido para fallback quando uma chave da OpenAI estiver configurada.
 
 ## Stack
 
@@ -13,7 +13,6 @@ O produto e local-first: o modo principal usa ferramentas locais como FFmpeg, wh
 - Rust
 - FFmpeg para extracao de audio
 - whisper.cpp para transcricao local
-- llama.cpp para resumo local com modelos GGUF
 
 ## Funcionalidades
 
@@ -24,9 +23,9 @@ O produto e local-first: o modo principal usa ferramentas locais como FFmpeg, wh
 - Biblioteca local com busca, categorias, tags e player de video.
 - Edicao de titulo, categoria e tags da reuniao.
 - Configuracoes de video: extensao, qualidade, resolucao, FPS, bitrates e audio.
-- Configuracoes de IA: modo local/API/hibrido, idioma, caminhos de ferramentas e modelos.
-- Progresso de processamento em tempo real.
-- Resumo estruturado com `summary`, `action_items` e `decisions`.
+- Configuracoes de IA: modo local/API/hibrido, idioma, caminhos de ferramentas e modelo Whisper.
+- Progresso de transcricao em tempo real.
+- Transcricao exibida diretamente na biblioteca.
 
 ## Estrutura
 
@@ -39,10 +38,13 @@ O produto e local-first: o modo principal usa ferramentas locais como FFmpeg, wh
 |   +-- adr/
 +-- memory-vault/
 +-- models/
+|   +-- whisper/
 +-- scripts/
 +-- src/
 +-- src-tauri/
 +-- tools/
+    +-- ffmpeg/
+    +-- whisper.cpp/
 ```
 
 Arquivos principais:
@@ -54,6 +56,7 @@ Arquivos principais:
 - `src-tauri/tauri.conf.json`: configuracao da janela e bundle.
 - `docs/PRD.md`: requisitos de produto.
 - `docs/architecture.md`: arquitetura e fluxos.
+- `docs/adr/`: decisoes arquiteturais registradas.
 - `memory-vault/00-index.md`: memoria em formato Obsidian.
 - `AGENTS.md`: instrucoes para agentes de IA.
 
@@ -62,6 +65,26 @@ Arquivos principais:
 ```powershell
 npm install
 npm run tauri:dev
+```
+
+## Baixar ferramentas locais
+
+Os diretorios `tools/` e `models/` sao ignorados pelo Git porque contem binarios e modelos grandes. Em uma maquina nova, rode:
+
+```powershell
+npm run bootstrap:local-ai
+```
+
+O script baixa:
+
+- FFmpeg para `tools/ffmpeg/`.
+- `whisper-cli.exe` para `tools/whisper.cpp/`.
+- Modelo Whisper para `models/whisper/`.
+
+Por padrao, o modelo baixado e `large-v3-turbo`. Para escolher outro:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/bootstrap-local-ai.ps1 -WhisperModel small
 ```
 
 ## Build
@@ -81,7 +104,7 @@ cargo check
 
 ## Dados locais
 
-O app usa o diretorio de dados do Tauri. No Windows, normalmente fica em algo como:
+O app usa o diretorio de dados do Tauri. No Windows, normalmente fica em:
 
 ```text
 %APPDATA%\com.julio.meetingvault\
@@ -91,7 +114,7 @@ Conteudo esperado:
 
 - `store.json`: metadados, configuracoes e estado da biblioteca.
 - `recordings/`: videos gravados.
-- `processing/`: arquivos temporarios de audio/transcricao.
+- `processing/`: arquivos temporarios de audio e transcricao.
 
 ## Configuracao local de IA
 
@@ -100,22 +123,18 @@ No app, em Configuracoes, defina:
 - Caminho do FFmpeg.
 - Caminho do `whisper-cli`.
 - Caminho do modelo Whisper `.bin`.
-- Caminho do `llama-cli`.
-- Caminho do modelo LLM `.gguf`.
-- Contexto LLM e tokens maximos.
-- Modo de hardware local: auto, CPU, CUDA ou Vulkan.
+- Numero de threads do Whisper.
+- Idioma de transcricao.
 
 Exemplos de caminhos locais neste projeto:
 
 ```text
 tools\ffmpeg\ffmpeg-8.1.1-essentials_build\bin\ffmpeg.exe
 tools\whisper.cpp\Release\whisper-cli.exe
-tools\llama.cpp\llama-cli.exe
 models\whisper\ggml-large-v3-turbo.bin
-models\llm\Qwen3-8B-Q4_K_M.gguf
 ```
 
-Modelos grandes em CPU podem exigir muita memoria livre. Se o Whisper funcionar e o resumo falhar com erro de alocacao, reduza o contexto LLM, reduza tokens maximos ou use um modelo GGUF menor.
+Modelos Whisper maiores podem exigir mais memoria e tempo de CPU. Para maquinas modestas, prefira `small` ou `medium` no script de bootstrap.
 
 ## Documentacao
 
@@ -124,11 +143,12 @@ Modelos grandes em CPU podem exigir muita memoria livre. Se o Whisper funcionar 
 - [Pesquisa de produto](docs/product-research.md)
 - [ADRs](docs/adr)
 - [Memory Vault](memory-vault/00-index.md)
+- [AGENTS.md](AGENTS.md)
 
 ## Roadmap resumido
 
-- Teste de configuracao local para FFmpeg, Whisper e llama.cpp.
-- Mensagens melhores para erros de memoria em modelos locais.
+- Teste de configuracao local para FFmpeg e Whisper.
+- Exportacao de transcricao em Markdown/TXT.
 - Migracao de `store.json` para SQLite.
-- Exportacao Markdown/JSON de reunioes.
+- Reintroducao de sumarizacao via API dedicada (ver ADR 0005).
 - Integracoes com calendario, Notion/Obsidian, Slack/Teams e CRM.

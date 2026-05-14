@@ -1,22 +1,32 @@
-# ADR 0002: Processamento local-first com FFmpeg, whisper.cpp e llama.cpp
+# ADR 0002: Processamento local-first com FFmpeg e whisper.cpp
 
 ## Status
 
-Aceita.
+Parcialmente revisada — ver ADR 0005.
 
 ## Contexto
 
-O usuario deseja transcrever e resumir reunioes sem depender de chaves de API ou upload de dados. O app deve funcionar localmente quando as ferramentas e modelos estiverem configurados.
+O usuario deseja transcrever reunioes sem depender de chaves de API ou upload de dados. O app deve funcionar localmente quando as ferramentas e modelos estiverem configurados.
 
-## Decisao
+## Decisao original
 
 Implementar modo `local` como padrao, usando:
 
 - FFmpeg para extrair audio WAV mono 16 kHz.
 - whisper.cpp para transcricao local.
-- llama.cpp com modelo GGUF para resumo local estruturado.
+- llama.cpp com modelo GGUF para resumo local estruturado (removido — ver ADR 0005).
 
 Tambem manter modos `api` e `hybrid` para flexibilidade.
+
+## Revisao (ADR 0005)
+
+O componente de resumo com llama.cpp foi removido do pipeline em 2026-05-14. O pipeline local atual e:
+
+```
+video → FFmpeg (audio.wav) → whisper.cpp (transcript.txt)
+```
+
+O modo `hybrid` continua funcionando para transcricao: tenta whisper.cpp local e cai para a API da OpenAI em caso de falha.
 
 ## Consequencias positivas
 
@@ -27,14 +37,12 @@ Tambem manter modos `api` e `hybrid` para flexibilidade.
 
 ## Consequencias negativas
 
-- Instalacao e configuracao de binarios/modelos e mais trabalhosa.
-- Modelos grandes podem falhar por falta de memoria.
-- Performance varia muito por CPU/GPU/modelo.
-- Qualidade depende da escolha do modelo local.
+- Instalacao e configuracao de binarios e modelos e mais trabalhosa.
+- Performance da transcricao varia muito por CPU/GPU/modelo.
+- Qualidade depende da escolha do modelo Whisper.
 
 ## Implicacoes operacionais
 
 - O app deve validar caminhos antes de processar.
 - A UI deve mostrar progresso e mensagens de erro acionaveis.
-- Defaults de contexto e tokens precisam considerar maquinas com pouca memoria livre.
 - Um teste de configuracao local deve ser priorizado no roadmap.

@@ -8,8 +8,8 @@
 - Persistencia atual: JSON local em `app_data_dir()/store.json`.
 - Midia: videos locais em `app_data_dir()/recordings`.
 - Processamento temporario: `app_data_dir()/processing/<meeting-id>`.
-- IA local: FFmpeg, whisper.cpp e llama.cpp.
-- IA API: OpenAI opcional, usada apenas nos modos `api` e `hybrid`.
+- IA local: FFmpeg e whisper.cpp.
+- IA API: OpenAI opcional, usada apenas nos modos `api` e `hybrid` para transcricao.
 
 ## Componentes
 
@@ -22,7 +22,6 @@ flowchart LR
   Commands --> Files["recordings/"]
   Commands --> FFmpeg["FFmpeg"]
   FFmpeg --> Whisper["whisper.cpp"]
-  Whisper --> Llama["llama.cpp"]
   Commands --> API["OpenAI API opcional"]
   Commands --> Events["processing-progress"]
   Events --> UI
@@ -56,7 +55,7 @@ Comandos expostos:
 - `delete_meeting`
 - `open_recording`
 - `reveal_recording`
-- `transcribe_and_summarize`
+- `transcribe_meeting`
 - `minimize_window`
 - `toggle_maximize_window`
 - `hide_window`
@@ -79,20 +78,16 @@ sequenceDiagram
   participant Rust as Tauri/Rust
   participant FFmpeg as FFmpeg
   participant Whisper as whisper-cli
-  participant Llama as llama-cli
 
-  UI->>Rust: transcribe_and_summarize(id)
+  UI->>Rust: transcribe_meeting(id)
   Rust->>UI: processing-progress 2%
   Rust->>Rust: validate_local_settings()
   Rust->>UI: processing-progress 15%
   Rust->>FFmpeg: extrair WAV mono 16k
   FFmpeg-->>Rust: audio.wav
-  Rust->>UI: processing-progress 35%
+  Rust->>UI: processing-progress 50%
   Rust->>Whisper: transcrever audio.wav
   Whisper-->>Rust: transcript.txt
-  Rust->>UI: processing-progress 75%
-  Rust->>Llama: resumir transcript
-  Llama-->>Rust: JSON summary/action_items/decisions
   Rust->>Rust: persist_store()
   Rust->>UI: processing-progress 100%
 ```
@@ -102,7 +97,6 @@ sequenceDiagram
 Usado quando `processingMode` e `api`, ou quando `hybrid` falha localmente e ha API key configurada.
 
 - Transcricao: `POST https://api.openai.com/v1/audio/transcriptions`.
-- Resumo: `POST https://api.openai.com/v1/chat/completions`.
 
 ## Tray e janela
 
@@ -118,5 +112,5 @@ A janela principal usa `decorations: false` em `src-tauri/tauri.conf.json`, com 
 
 - O app ainda usa `store.json`; concorrencia e integridade devem ser revistas antes de bibliotecas grandes.
 - O pipeline local executa processos externos e depende de caminhos corretos.
-- Modelos GGUF grandes precisam de memoria livre suficiente e contexto adequado.
 - Os campos de configuracao local devem ser tratados como estado de maquina do usuario, nao como dados de projeto versionados.
+- Dados existentes no `store.json` com campos antigos (`summary`, `action_items`, `decisions`) sao ignorados silenciosamente pelo Rust ao deserializar.

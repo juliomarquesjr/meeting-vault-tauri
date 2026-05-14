@@ -8,20 +8,25 @@
 - Loom: gravacao de tela, biblioteca de videos, transcricao e resumo por IA.
 - OBS: captura robusta de tela e audio, mas sem biblioteca e inteligencia de reunioes.
 
-## Funcionalidades priorizadas para o MVP
+## Funcionalidades priorizadas para o MVP atual
 
 - Gravacao de tela com audio em WebM compactado.
 - Biblioteca local com busca, detalhes, player e metadados.
-- Edicao de titulo da reuniao.
+- Edicao de titulo da reuniao, categorias e tags.
 - Tray nativo no Windows com iniciar, finalizar e abrir biblioteca.
-- Transcricao e resumo sob demanda.
-- Resumo estruturado com decisoes e proximas acoes.
+- Transcricao sob demanda (local via whisper.cpp ou API via OpenAI).
 - Armazenamento local dos videos e metadados.
+
+## Funcionalidades diferidas
+
+- Resumo estruturado com decisoes e proximas acoes — diferido para fase posterior (ver ADR 0005).
+- Identificacao de participantes e diarizacao.
+- Integracoes externas (calendario, Notion, CRM).
 
 ## Decisoes tecnicas
 
 - Tauri + React + TypeScript para UI leve e moderna.
 - Rust no backend para tray, persistencia local e chamadas de API.
 - JSON local no MVP; SQLite entra quando houver filtros, tags, participantes e historico maior.
-- OpenAI configuravel: `gpt-4o-mini-transcribe` para transcricao e `gpt-5.4-mini` para resumo.
-- Proximo passo para producao: extrair somente a trilha de audio com FFmpeg sidecar antes de transcrever arquivos longos.
+- OpenAI configuravel: `gpt-4o-mini-transcribe` como modelo padrao de transcricao via API.
+- Proximo passo para producao: exportar transcricao em Markdown/TXT e adicionar teste de configuracao local.

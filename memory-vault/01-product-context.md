@@ -2,7 +2,7 @@
 
 ## Problema
 
-O usuario precisa registrar reunioes, manter videos acessiveis e transformar conteudo gravado em transcricao, resumo executivo, decisoes e proximas acoes.
+O usuario precisa registrar reunioes, manter videos acessiveis e transformar conteudo gravado em transcricao pesquisavel localmente.
 
 ## Direcao de produto
 
@@ -17,16 +17,21 @@ Meeting Vault deve parecer uma ferramenta profissional de operacao, nao um MVP s
 - Biblioteca como centro do produto.
 - Integracoes sao extensoes futuras, nao dependencia inicial.
 
-## Funcionalidades importantes
+## Funcionalidades atuais
 
 - Gravar tela e audio.
 - Salvar video compactado localmente.
-- Editar titulo da reuniao.
-- Categorias e tags.
-- Busca por titulo, tags, resumo e transcricao.
-- Resumo com acoes e decisoes.
+- Editar titulo da reuniao, categoria e tags.
+- Busca por titulo, tags e transcricao.
+- Transcricao local com Whisper ou via API.
 - Tray do Windows.
-- Progresso visivel durante transcricao/resumo.
+- Progresso visivel durante transcricao.
+
+## Funcionalidades diferidas
+
+- Resumo executivo com acoes e decisoes — removido desta fase, ver [[../docs/adr/0005-remove-summarization|ADR 0005]].
+- Identificacao de participantes e diarizacao.
+- Integracoes reais com calendario, Notion e CRM.
 
 ## Referencias competitivas
 

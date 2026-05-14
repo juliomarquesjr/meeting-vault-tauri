@@ -19,6 +19,7 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - [ADR 0002](../docs/adr/0002-local-first-ai-processing.md)
 - [ADR 0003](../docs/adr/0003-json-store-before-sqlite.md)
 - [ADR 0004](../docs/adr/0004-frameless-professional-dark-ui.md)
+- [ADR 0005](../docs/adr/0005-remove-summarization.md)
 
 ## Estado rapido
 
@@ -26,5 +27,6 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - UI React/TypeScript.
 - Persistencia local em JSON.
 - Gravacao via WebView2 `MediaRecorder`.
-- Processamento local com FFmpeg, whisper.cpp e llama.cpp.
-- Modo API/hibrido existe, mas o produto deve continuar local-first.
+- Processamento local com FFmpeg e whisper.cpp.
+- Sumarizacao com llama.cpp removida — ver ADR 0005.
+- Modo API/hibrido existe para transcricao, mas o produto deve continuar local-first.

@@ -29,15 +29,21 @@
 - `delete_meeting`
 - `open_recording`
 - `reveal_recording`
-- `transcribe_and_summarize`
+- `transcribe_meeting`
 - `minimize_window`
 - `toggle_maximize_window`
 - `hide_window`
 - `start_dragging_window`
 
+## Modelo de dados — Meeting
+
+Campos ativos: `id`, `title`, `createdAt`, `startedAt`, `category`, `tags`, `durationSeconds`, `sizeBytes`, `recordingPath`, `mimeType`, `transcript`, `status`, `progressMessage`, `progressPercent`, `error`.
+
+Campos removidos (nao mais presentes nos tipos): `summary`, `actionItems`, `decisions`. Dados antigos no `store.json` com esses campos sao ignorados silenciosamente.
+
 ## Dados locais
 
-No Windows, o Tauri deve usar algo equivalente a:
+No Windows, o Tauri usa:
 
 - `%APPDATA%\\com.julio.meetingvault\\store.json`
 - `%APPDATA%\\com.julio.meetingvault\\recordings\\`
