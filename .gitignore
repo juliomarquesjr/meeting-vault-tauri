@@ -1,0 +1,11 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+*.log
+.DS_Store
+
+# Local machine tools and large model files.
+# These paths are configured per developer and must not be committed.
+tools/
+models/
