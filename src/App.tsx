@@ -22,8 +22,11 @@ import {
   Maximize2,
   Minimize2,
   MonitorUp,
+  Pause,
   Pencil,
   Play,
+  Volume2,
+  VolumeX,
   RefreshCcw,
   Save,
   Search,
@@ -190,6 +193,15 @@ function resolutionDimensions(resolution: string) {
   return { width: 1920, height: 1080 };
 }
 
+function formatVideoTime(seconds: number) {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
 function recorderOptions(settings: Settings): MediaRecorderOptions {
   const candidates = [
     "video/webm;codecs=vp9,opus",
@@ -223,11 +235,18 @@ function App() {
   const [categoryDraft, setCategoryDraft] = useState("");
   const [tagsDraft, setTagsDraft] = useState("");
   const [notice, setNotice] = useState("");
+  const [tagInput, setTagInput] = useState("");
+  const [recordingTagInput, setRecordingTagInput] = useState("");
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoIsPlaying, setVideoIsPlaying] = useState(false);
+  const [videoIsMuted, setVideoIsMuted] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const startedAtRef = useRef<Date | null>(null);
   const timerRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const categories = useMemo(() => {
     return Array.from(
@@ -505,7 +524,11 @@ function App() {
     setTitleDraft(selectedMeeting.title);
     setCategoryDraft(selectedMeeting.category || "");
     setTagsDraft(selectedMeeting.tags.join(", "));
-  }, [selectedMeeting]);
+    setTagInput("");
+    setVideoCurrentTime(0);
+    setVideoDuration(0);
+    setVideoIsPlaying(false);
+  }, [selectedMeeting?.id]);
 
   const startDraggingWindow = useCallback((event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -528,196 +551,147 @@ function App() {
     </div>
   );
 
-  const renderRecordingPanel = (variant: "compact" | "wide") => (
-    <section className={`recording-module ${variant}`}>
-      <div className="panel-heading">
-        <div>
-          <span>Captura</span>
-          <h2>{isRecording ? "Gravacao em andamento" : "Nova gravacao"}</h2>
-        </div>
-        <div className="recording-state">
-          <span className={isRecording ? "live-dot active" : "live-dot"} />
-          <strong>{isRecording ? formatDuration(elapsed) : `${settings.resolution} · ${settings.frameRate} fps`}</strong>
-        </div>
-      </div>
-
-      <div className="recording-form">
-        <label>
-          <span>Titulo</span>
-          <input
-            value={recordingTitle}
-            onChange={(event) => setRecordingTitle(event.target.value)}
-            disabled={isRecording}
-          />
-        </label>
-        <label>
-          <span>Categoria</span>
-          <select
-            value={recordingCategory}
-            onChange={(event) => setRecordingCategory(event.target.value)}
-            disabled={isRecording}
-          >
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="wide-field">
-          <span>Tags</span>
-          <input
-            value={recordingTags}
-            onChange={(event) => setRecordingTags(event.target.value)}
-            placeholder="cliente, proposta, sprint"
-            disabled={isRecording}
-          />
-        </label>
-      </div>
-
-      <div className="button-row">
-        <button
-          className={isRecording ? "primary-button danger" : "primary-button"}
-          onClick={() => (isRecording ? stopRecording() : startRecording())}
-        >
-          {isRecording ? <Square size={17} /> : <Video size={17} />}
-          <span>{isRecording ? "Finalizar gravacao" : "Iniciar gravacao"}</span>
-        </button>
-      </div>
-    </section>
-  );
-
   const renderDashboard = () => (
     <div className="dashboard-view">
-      <section className="dashboard-frame metrics-frame">
-        <div className="panel-heading">
-          <div>
-            <span>Indicadores</span>
-            <h2>Resumo operacional</h2>
-          </div>
-          <div className="button-row inline">
-            <button className="secondary-button" onClick={() => setView("library")}>
-              <Library size={16} />
-              <span>Biblioteca</span>
-            </button>
-            <button className="secondary-button" onClick={() => setView("settings")}>
-              <SettingsIcon size={16} />
-              <span>Configurar</span>
-            </button>
+
+      {/* Zone 1 — KPI tiles */}
+      <div className="kpi-row">
+        <div className="kpi-tile">
+          <div className="kpi-icon"><Library size={20} /></div>
+          <div className="kpi-body">
+            <span>Reunioes gravadas</span>
+            <strong>{meetings.length}</strong>
+            <em>{stats.summarized} transcritas</em>
           </div>
         </div>
-        <div className="metric-grid">
-          <div className="metric-tile">
-            <Library size={18} />
-            <span>Reunioes</span>
-            <strong>{meetings.length}</strong>
-          </div>
-          <div className="metric-tile">
-            <Clock3 size={18} />
-            <span>Tempo gravado</span>
+        <div className="kpi-tile">
+          <div className="kpi-icon kpi-icon--neutral"><Clock3 size={20} /></div>
+          <div className="kpi-body">
+            <span>Tempo total gravado</span>
             <strong>{formatDuration(stats.totalDuration)}</strong>
+            <em>media {formatDuration(stats.avgDuration)} / reuniao</em>
           </div>
-          <div className="metric-tile">
-            <Bot size={18} />
+        </div>
+        <div className="kpi-tile">
+          <div className="kpi-icon kpi-icon--success"><Bot size={20} /></div>
+          <div className="kpi-body">
             <span>Transcritas</span>
             <strong>{stats.summarized}</strong>
+            <em>{meetings.length ? Math.round((stats.summarized / meetings.length) * 100) : 0}% do total</em>
           </div>
-          <div className="metric-tile">
-            <HardDrive size={18} />
+        </div>
+        <div className="kpi-tile">
+          <div className="kpi-icon kpi-icon--neutral"><HardDrive size={20} /></div>
+          <div className="kpi-body">
             <span>Armazenamento</span>
             <strong>{formatBytes(stats.totalSize)}</strong>
+            <em>{stats.processing > 0 ? `${stats.processing} em processamento` : "fila vazia"}</em>
           </div>
         </div>
+      </div>
 
-        <div className="summary-card-grid">
-          <section className="summary-card">
-            <div className="panel-heading">
-              <div>
-                <span>Pipeline</span>
-                <h2>Estado da biblioteca</h2>
-              </div>
-              <BarChart3 size={20} />
+      {/* Zone 2 — Gravação + Atividade recente */}
+      <div className="dash-main-row">
+        <section className="dashboard-frame">
+          <div className="panel-heading">
+            <div>
+              <span>Operacao</span>
+              <h2>{isRecording ? "Gravacao em andamento" : "Nova gravacao"}</h2>
             </div>
-            <div className="pipeline-list">
-              <div>
-                <CheckCircle2 size={17} />
-                <span>Transcritas</span>
-                <strong>{stats.summarized}</strong>
+            <div className="button-row inline">
+              <div className="recording-state">
+                <span className={isRecording ? "live-dot active" : "live-dot"} />
+                <strong>{isRecording ? formatDuration(elapsed) : `${settings.resolution} · ${settings.frameRate} fps`}</strong>
               </div>
-              <div>
-                <Loader2 size={17} />
-                <span>Processando</span>
-                <strong>{stats.processing}</strong>
-              </div>
-              <div>
-                <AlertTriangle size={17} />
-                <span>Com erro</span>
-                <strong>{stats.error}</strong>
-              </div>
-              <div>
-                <Gauge size={17} />
-                <span>Duracao media</span>
-                <strong>{formatDuration(stats.avgDuration)}</strong>
-              </div>
+              <button className="secondary-button" onClick={() => setView("video")}>
+                <SlidersHorizontal size={14} />
+                <span>Qualidade</span>
+              </button>
             </div>
-          </section>
-
-          <section className="summary-card">
-            <div className="panel-heading">
-              <div>
-                <span>Taxonomia</span>
-                <h2>Organizacao atual</h2>
-              </div>
-              <Tag size={20} />
-            </div>
-            <div className="taxonomy-summary">
-              <div>
-                <strong>{categories.length}</strong>
-                <span>Categorias</span>
-              </div>
-              <div>
-                <strong>{tags.length}</strong>
-                <span>Tags</span>
-              </div>
-            </div>
-            <div className="tag-cloud">
-              {tags.slice(0, 10).map((tag) => (
-                <span key={tag}>#{tag}</span>
-              ))}
-              {!tags.length && <span>sem tags</span>}
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section className="dashboard-frame actions-frame">
-        <div className="panel-heading">
-          <div>
-            <span>Operacao</span>
-            <h2>Gravacao e atividade</h2>
           </div>
-          <div className="button-row inline">
-            <button className="secondary-button" onClick={() => setView("video")}>
-              <SlidersHorizontal size={16} />
-              <span>Qualidade</span>
-            </button>
+
+          <div className="dash-rec-form">
+            <div className="dash-rec-row">
+              <label>
+                <span>Titulo</span>
+                <input
+                  value={recordingTitle}
+                  onChange={(e) => setRecordingTitle(e.target.value)}
+                  disabled={isRecording}
+                />
+              </label>
+              <label>
+                <span>Categoria</span>
+                <select
+                  value={recordingCategory}
+                  onChange={(e) => setRecordingCategory(e.target.value)}
+                  disabled={isRecording}
+                >
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>Tags</span>
+              <div className={`tags-input-container${isRecording ? " tags-input-disabled" : ""}`}>
+                {parseTags(recordingTags).map((tag) => (
+                  <span key={tag} className="tag-badge">
+                    #{tag}
+                    {!isRecording && (
+                      <button
+                        onClick={() => setRecordingTags(parseTags(recordingTags).filter((t) => t !== tag).join(", "))}
+                        tabIndex={-1}
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
+                  </span>
+                ))}
+                {!isRecording && (
+                  <input
+                    value={recordingTagInput}
+                    onChange={(e) => setRecordingTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        const tag = recordingTagInput.trim().replace(/^#/, "").replace(/,/g, "");
+                        if (tag && !parseTags(recordingTags).some((t) => t.toLowerCase() === tag.toLowerCase())) {
+                          setRecordingTags(parseTags(recordingTags).concat(tag).join(", "));
+                        }
+                        setRecordingTagInput("");
+                      } else if (e.key === "Backspace" && !recordingTagInput) {
+                        const current = parseTags(recordingTags);
+                        setRecordingTags(current.slice(0, -1).join(", "));
+                      }
+                    }}
+                    placeholder={parseTags(recordingTags).length === 0 ? "cliente, sprint, q2..." : ""}
+                  />
+                )}
+              </div>
+            </label>
+            <div>
+              <button
+                className={isRecording ? "primary-button danger" : "primary-button"}
+                onClick={() => (isRecording ? stopRecording() : startRecording())}
+              >
+                {isRecording ? <Square size={16} /> : <Video size={16} />}
+                <span>{isRecording ? "Finalizar gravacao" : "Iniciar gravacao"}</span>
+              </button>
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div className="action-card-grid">
-          {renderRecordingPanel("wide")}
-
-          <section className="summary-card recent-card">
+        <section className="dashboard-frame recent-frame">
           <div className="panel-heading">
             <div>
               <span>Atividade</span>
               <h2>Reunioes recentes</h2>
             </div>
-            <div className="button-row inline">
-              <button className="secondary-button" onClick={() => setView("library")}>
-                Ver biblioteca <ChevronRight size={16} />
-              </button>
-            </div>
+            <button className="secondary-button" onClick={() => setView("library")}>
+              Ver todas <ChevronRight size={14} />
+            </button>
           </div>
           <div className="recent-list">
             {recentMeetings.length ? (
@@ -731,15 +705,17 @@ function App() {
                   }}
                 >
                   <span className="status-line" data-status={meeting.status} />
-                  <div>
+                  <div className="recent-row-body">
                     <strong>{meeting.title}</strong>
-                    <small>
-                      {meeting.status === "processing"
-                        ? `${meeting.progressMessage || "Processando"} · ${Math.round(meeting.progressPercent || 0)}%`
-                        : `${formatDate(meeting.startedAt)} · ${meeting.category || "Sem categoria"}`}
-                    </small>
+                    <div className="recent-row-meta">
+                      {meeting.status === "processing" ? (
+                        <><Loader2 size={11} /> {meeting.progressMessage || "Processando"} · {Math.round(meeting.progressPercent || 0)}%</>
+                      ) : (
+                        <><CalendarDays size={11} /> {formatDate(meeting.startedAt)} · {meeting.category || "Sem categoria"}</>
+                      )}
+                    </div>
                   </div>
-                  <span>{formatDuration(meeting.durationSeconds)}</span>
+                  <span className="recent-row-duration">{formatDuration(meeting.durationSeconds)}</span>
                 </button>
               ))
             ) : (
@@ -750,122 +726,309 @@ function App() {
             )}
           </div>
         </section>
-        </div>
-      </section>
+      </div>
+
+      {/* Zone 3 — Pipeline + Taxonomia */}
+      <div className="dash-footer-row">
+        <section className="dashboard-frame">
+          <div className="panel-heading">
+            <div>
+              <span>Pipeline</span>
+              <h2>Estado da biblioteca</h2>
+            </div>
+            <BarChart3 size={18} color="var(--muted)" />
+          </div>
+          <div className="pipeline-stats">
+            <div className="pipeline-stat" data-type="success">
+              <CheckCircle2 size={16} />
+              <span>Transcritas</span>
+              <strong>{stats.summarized}</strong>
+            </div>
+            <div className="pipeline-stat" data-type="warning">
+              <Loader2 size={16} />
+              <span>Processando</span>
+              <strong>{stats.processing}</strong>
+            </div>
+            <div className="pipeline-stat" data-type="error">
+              <AlertTriangle size={16} />
+              <span>Com erro</span>
+              <strong>{stats.error}</strong>
+            </div>
+            <div className="pipeline-stat">
+              <Gauge size={16} />
+              <span>Duracao media</span>
+              <strong>{formatDuration(stats.avgDuration)}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="dashboard-frame">
+          <div className="panel-heading">
+            <div>
+              <span>Taxonomia</span>
+              <h2>Organizacao</h2>
+            </div>
+            <button className="secondary-button" onClick={() => setView("taxonomy")}>
+              <Tag size={14} />
+              <span>Gerenciar</span>
+            </button>
+          </div>
+          <div className="taxonomy-kpi">
+            <div>
+              <Layers3 size={16} />
+              <strong>{categories.length}</strong>
+              <span>Categorias</span>
+            </div>
+            <div>
+              <Hash size={16} />
+              <strong>{tags.length}</strong>
+              <span>Tags</span>
+            </div>
+          </div>
+          <div className="tag-cloud">
+            {tags.slice(0, 12).map((tag) => (
+              <span key={tag}>#{tag}</span>
+            ))}
+            {!tags.length && <span>sem tags cadastradas</span>}
+          </div>
+        </section>
+      </div>
     </div>
   );
 
   const renderMeetingDetail = () => {
     if (!selectedMeeting) {
       return (
-        <div className="empty-state large">
-          <Video size={34} />
-          <strong>Selecione ou grave uma reuniao</strong>
-          <span>A biblioteca exibira player, transcricao e metadados.</span>
-        </div>
+        <section className="detail-workspace">
+          <div className="empty-state large">
+            <Video size={34} />
+            <strong>Selecione ou grave uma reuniao</strong>
+            <span>A biblioteca exibira player, transcricao e metadados.</span>
+          </div>
+        </section>
       );
     }
 
+    const isProcessing = processingIds.has(selectedMeeting.id);
+    const percent = Math.round(Math.max(0, Math.min(100, selectedMeeting.progressPercent || 0)));
+
     return (
       <section className="detail-workspace">
-        <div className="detail-top">
-          <div className="metadata-editor">
-            <label>
-              <span>Titulo</span>
-              <input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} />
-            </label>
-            <label>
-              <span>Categoria</span>
-              <input
-                value={categoryDraft}
-                onChange={(event) => setCategoryDraft(event.target.value)}
-                list="category-options"
-              />
-              <datalist id="category-options">
-                {categories.map((category) => (
-                  <option key={category} value={category} />
-                ))}
-              </datalist>
-            </label>
-            <label className="span-two">
-              <span>Tags</span>
-              <input
-                value={tagsDraft}
-                onChange={(event) => setTagsDraft(event.target.value)}
-                placeholder="Separadas por virgula"
-              />
-            </label>
-          </div>
-          <div className="detail-actions">
-            <button className="secondary-button" onClick={saveMetadata}>
-              <Pencil size={16} /> Salvar metadados
-            </button>
-            <button
-              className="secondary-button"
-              onClick={() => invoke("open_recording", { id: selectedMeeting.id })}
-            >
-              <Play size={16} /> Assistir
-            </button>
-            <button
-              className="secondary-button"
-              onClick={() => invoke("reveal_recording", { id: selectedMeeting.id })}
-            >
-              <FolderOpen size={16} /> Pasta
-            </button>
-            <button className="icon-button danger" onClick={deleteMeeting} title="Excluir">
-              <Trash2 size={16} />
-            </button>
+        {/* Header: título + ações */}
+        <div className="detail-header">
+          <div className="detail-title-row">
+            <input
+              className="detail-title-input"
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+            />
+            <div className="detail-action-bar">
+              <button className="secondary-button" onClick={saveMetadata}>
+                <Pencil size={14} /> Salvar
+              </button>
+              <button
+                className="icon-button"
+                onClick={() => invoke("open_recording", { id: selectedMeeting.id })}
+                title="Assistir"
+              >
+                <Play size={15} />
+              </button>
+              <button
+                className="icon-button"
+                onClick={() => invoke("reveal_recording", { id: selectedMeeting.id })}
+                title="Abrir pasta"
+              >
+                <FolderOpen size={15} />
+              </button>
+              <button className="icon-button danger" onClick={deleteMeeting} title="Excluir">
+                <Trash2 size={15} />
+              </button>
+            </div>
           </div>
         </div>
 
+        {/* Categoria + Tags */}
+        <div className="detail-fields">
+          <label>
+            <span>Categoria</span>
+            <input
+              value={categoryDraft}
+              onChange={(event) => setCategoryDraft(event.target.value)}
+              list="category-options"
+            />
+            <datalist id="category-options">
+              {categories.map((category) => (
+                <option key={category} value={category} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            <span>Tags</span>
+            <div className="tags-input-container">
+              {parseTags(tagsDraft).map((tag) => (
+                <span key={tag} className="tag-badge">
+                  #{tag}
+                  <button
+                    onClick={() => setTagsDraft(parseTags(tagsDraft).filter((t) => t !== tag).join(", "))}
+                    tabIndex={-1}
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+              <input
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    const tag = tagInput.trim().replace(/^#/, "").replace(/,/g, "");
+                    if (tag && !parseTags(tagsDraft).some((t) => t.toLowerCase() === tag.toLowerCase())) {
+                      setTagsDraft(parseTags(tagsDraft).concat(tag).join(", "));
+                    }
+                    setTagInput("");
+                  } else if (e.key === "Backspace" && !tagInput) {
+                    const current = parseTags(tagsDraft);
+                    setTagsDraft(current.slice(0, -1).join(", "));
+                  }
+                }}
+                placeholder={parseTags(tagsDraft).length === 0 ? "Adicionar tag..." : ""}
+              />
+            </div>
+          </label>
+        </div>
+
+        {/* Metadados */}
         <div className="detail-meta">
-          <span><CalendarDays size={15} />{formatDate(selectedMeeting.startedAt)}</span>
-          <span><Clock3 size={15} />{formatDuration(selectedMeeting.durationSeconds)}</span>
-          <span><HardDrive size={15} />{formatBytes(selectedMeeting.sizeBytes)}</span>
-          <span><BadgeCheck size={15} />{statusLabel(selectedMeeting)}</span>
+          <span><CalendarDays size={13} />{formatDate(selectedMeeting.startedAt)}</span>
+          <span><Clock3 size={13} />{formatDuration(selectedMeeting.durationSeconds)}</span>
+          <span><HardDrive size={13} />{formatBytes(selectedMeeting.sizeBytes)}</span>
+          <span><BadgeCheck size={13} />{statusLabel(selectedMeeting)}</span>
         </div>
 
-        {(selectedMeeting.status === "processing" || selectedMeeting.progressMessage) && (
-          <div className="processing-panel">
-            <div>
-              <span>{selectedMeeting.status === "processing" ? "Em andamento" : "Ultimo processamento"}</span>
-              <strong>{selectedMeeting.progressMessage || statusLabel(selectedMeeting)}</strong>
-            </div>
-            <em>{Math.round(selectedMeeting.progressPercent || 0)}%</em>
-            <div className="progress-track">
-              <span style={{ width: `${Math.max(0, Math.min(100, selectedMeeting.progressPercent || 0))}%` }} />
-            </div>
-          </div>
-        )}
-
+        {/* Player de vídeo */}
         <div className="player-section">
-          <video src={convertFileSrc(selectedMeeting.recordingPath)} controls />
-        </div>
-
-        <div className="analysis-heading">
-          <div>
-            <span>Transcricao</span>
-            <h2>{selectedMeeting.transcript ? "Transcricao disponivel" : "Sem transcricao"}</h2>
-          </div>
-          <button
-            className="primary-button compact"
-            onClick={() => transcribeMeeting(selectedMeeting)}
-            disabled={processingIds.has(selectedMeeting.id)}
-          >
-            {processingIds.has(selectedMeeting.id) ? (
-              <Loader2 size={17} className="spin" />
-            ) : (
-              <Bot size={17} />
+          <div className="video-wrapper">
+            <video
+              ref={videoRef}
+              src={convertFileSrc(selectedMeeting.recordingPath)}
+              onTimeUpdate={() => setVideoCurrentTime(videoRef.current?.currentTime ?? 0)}
+              onDurationChange={() => setVideoDuration(videoRef.current?.duration ?? 0)}
+              onPlay={() => setVideoIsPlaying(true)}
+              onPause={() => setVideoIsPlaying(false)}
+              onEnded={() => setVideoIsPlaying(false)}
+              onClick={() => {
+                if (videoRef.current) {
+                  videoIsPlaying ? videoRef.current.pause() : videoRef.current.play();
+                }
+              }}
+            />
+            {!videoIsPlaying && (
+              <button
+                className="play-overlay"
+                onClick={() => videoRef.current?.play()}
+                aria-label="Play"
+              >
+                <Play size={28} />
+              </button>
             )}
-            <span>{processingIds.has(selectedMeeting.id) ? "Processando" : "Transcrever"}</span>
-          </button>
+          </div>
+          <div className="player-controls">
+            <button
+              className="player-btn"
+              onClick={() => videoRef.current && (videoIsPlaying ? videoRef.current.pause() : videoRef.current.play())}
+              title={videoIsPlaying ? "Pausar" : "Play"}
+            >
+              {videoIsPlaying ? <Pause size={15} /> : <Play size={15} />}
+            </button>
+            <span className="player-time">{formatVideoTime(videoCurrentTime)}</span>
+            <input
+              type="range"
+              className="player-scrubber"
+              min={0}
+              max={videoDuration || 1}
+              step={0.05}
+              value={videoCurrentTime}
+              style={{
+                background: `linear-gradient(to right, var(--accent) ${(videoCurrentTime / (videoDuration || 1)) * 100}%, rgba(255,255,255,0.1) ${(videoCurrentTime / (videoDuration || 1)) * 100}%)`
+              }}
+              onChange={(e) => {
+                const t = Number(e.target.value);
+                setVideoCurrentTime(t);
+                if (videoRef.current) videoRef.current.currentTime = t;
+              }}
+            />
+            <span className="player-time">{formatVideoTime(videoDuration)}</span>
+            <button
+              className="player-btn"
+              onClick={() => {
+                const muted = !videoIsMuted;
+                setVideoIsMuted(muted);
+                if (videoRef.current) videoRef.current.muted = muted;
+              }}
+              title={videoIsMuted ? "Ativar som" : "Silenciar"}
+            >
+              {videoIsMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            </button>
+            <button
+              className="player-btn"
+              onClick={() => videoRef.current?.requestFullscreen()}
+              title="Tela cheia"
+            >
+              <Maximize2 size={14} />
+            </button>
+          </div>
         </div>
 
-        <div className="insight-layout">
-          <section>
-            <h3><Bot size={17} />Transcricao</h3>
-            <p className="transcript">{selectedMeeting.transcript || "Sem transcricao."}</p>
-          </section>
+        {/* Transcrição — 3 estados */}
+        <div className="transcript-section">
+          <div className="transcript-header">
+            <h3><Bot size={15} />Transcricao</h3>
+            {selectedMeeting.transcript && !isProcessing && (
+              <button
+                className="text-button"
+                onClick={() => transcribeMeeting(selectedMeeting)}
+              >
+                <RefreshCcw size={13} /> Retranscrever
+              </button>
+            )}
+          </div>
+
+          {/* Estado: processando */}
+          {isProcessing && (
+            <div className="transcript-processing">
+              <div className="transcript-processing-info">
+                <div>
+                  <span>{selectedMeeting.progressMessage || "Transcrevendo..."}</span>
+                </div>
+                <em>{percent}%</em>
+              </div>
+              <div className="progress-track">
+                <span style={{ width: `${percent}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* Estado: vazio */}
+          {!selectedMeeting.transcript && !isProcessing && (
+            <div className="transcript-empty">
+              <Bot size={34} />
+              <p>Nenhuma transcricao disponivel</p>
+              <button
+                className="primary-button compact"
+                onClick={() => transcribeMeeting(selectedMeeting)}
+              >
+                <Bot size={15} /> Transcrever Agora
+              </button>
+            </div>
+          )}
+
+          {/* Estado: completo */}
+          {selectedMeeting.transcript && !isProcessing && (
+            <div className="transcript-text">
+              {selectedMeeting.transcript}
+            </div>
+          )}
         </div>
       </section>
     );
@@ -874,34 +1037,34 @@ function App() {
   const renderLibrary = () => (
     <div className="library-view">
       <section className="library-panel">
-        <div className="filter-row">
-          <div className="search-box">
-            <Search size={17} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar por titulo, tag ou transcricao"
-            />
+        <div style={{ display: "grid", gap: 8 }}>
+          <div className="lib-search">
+            <div className="search-box">
+              <Search size={16} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar por titulo, tag ou transcricao"
+              />
+            </div>
           </div>
-          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-            <option value="Todas">Todas categorias</option>
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-          <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
-            <option value="Todas">Todas tags</option>
-            {tags.map((tag) => (
-              <option key={tag} value={tag}>
-                #{tag}
-              </option>
-            ))}
-          </select>
-          <button className="secondary-button" onClick={refreshMeetings}>
-            <RefreshCcw size={16} /> Atualizar
-          </button>
+          <div className="lib-filters">
+            <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+              <option value="Todas">Todas categorias</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+            <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
+              <option value="Todas">Todas tags</option>
+              {tags.map((tag) => (
+                <option key={tag} value={tag}>#{tag}</option>
+              ))}
+            </select>
+            <button className="icon-button" onClick={refreshMeetings} title="Atualizar">
+              <RefreshCcw size={15} />
+            </button>
+          </div>
         </div>
 
         <div className="meeting-table">
@@ -913,17 +1076,25 @@ function App() {
                 onClick={() => setSelectedId(meeting.id)}
               >
                 <span className="status-line" data-status={meeting.status} />
-                <div>
+                <div className="record-body">
                   <strong>{meeting.title}</strong>
-                  <small>{formatDate(meeting.startedAt)} · {meeting.category || "Sem categoria"}</small>
+                  <div className="record-meta">
+                    <span>{formatDate(meeting.startedAt)}</span>
+                    <span>·</span>
+                    <span>{formatDuration(meeting.durationSeconds)}</span>
+                    {meeting.category && <><span>·</span><span>{meeting.category}</span></>}
+                  </div>
+                  {meeting.tags.length > 0 && (
+                    <div className="meeting-tags">
+                      {meeting.tags.slice(0, 3).map((tag) => (
+                        <span key={tag}>#{tag}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="meeting-tags">
-                  {meeting.tags.slice(0, 3).map((tag) => (
-                    <span key={tag}>#{tag}</span>
-                  ))}
+                <div className="record-status">
+                  <em>{statusLabel(meeting)}</em>
                 </div>
-                <span>{formatDuration(meeting.durationSeconds)}</span>
-                <em>{statusLabel(meeting)}</em>
                 {meeting.status === "processing" && (
                   <div className="row-progress">
                     <span style={{ width: `${Math.max(0, Math.min(100, meeting.progressPercent || 0))}%` }} />
@@ -1335,7 +1506,9 @@ function App() {
           </div>
         )}
 
-        <section className="content-body">{renderContent()}</section>
+        <section className={`content-body${view === "library" ? " content-body--library" : ""}`}>
+          {renderContent()}
+        </section>
       </main>
     </div>
   );

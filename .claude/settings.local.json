@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Projeto\\\\Tauri\\\\MeetingVault\\\\src\" -Recurse | Select-Object FullName, PSIsContainer | Where-Object {$_.PSIsContainer -or $_.FullName -match '\\\\.\\(tsx?|jsx?|css|json\\)$'} | Format-Table -AutoSize)"
+    ]
+  }
+}

@@ -781,7 +781,24 @@ fn setup_tray(app: &mut App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &start, &stop, &quit])?;
 
+    let icon = {
+        let mut rgba: Vec<u8> = Vec::with_capacity(32 * 32 * 4);
+        for y in 0u32..32 {
+            for x in 0u32..32 {
+                let cx = x as f32 - 15.5;
+                let cy = y as f32 - 15.5;
+                if cx * cx + cy * cy < 12.5 * 12.5 {
+                    rgba.extend_from_slice(&[124, 58, 237, 255]);
+                } else {
+                    rgba.extend_from_slice(&[0, 0, 0, 0]);
+                }
+            }
+        }
+        tauri::image::Image::new_owned(rgba, 32, 32)
+    };
+
     TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
         .tooltip("Meeting Vault")
         .menu(&menu)
         .show_menu_on_left_click(true)
