@@ -20,7 +20,6 @@ import {
   Link2,
   Loader2,
   Maximize2,
-  Minimize2,
   MonitorUp,
   Pause,
   Pencil,
@@ -43,10 +42,16 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import type { Meeting, ProcessingProgress, SaveRecordingInput, Settings } from "./types";
 
 type View = "dashboard" | "library" | "taxonomy" | "settings" | "summary" | "video" | "integrations";
 type ContentModal = "transcript" | "summary" | null;
+type RecordingFinalization = {
+  active: boolean;
+  message: string;
+  percent: number;
+};
 
 const defaultSettings: Settings = {
   apiKey: "",
@@ -220,6 +225,10 @@ function formatTextStats(text: string) {
   return `${words.toLocaleString("pt-BR")} palavras`;
 }
 
+function waitForUiPaint() {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
 function recorderOptions(settings: Settings): MediaRecorderOptions {
   const candidates = [
     "video/webm;codecs=vp9,opus",
@@ -247,6 +256,11 @@ function App() {
   const [recordingCategory, setRecordingCategory] = useState(defaultCategories[0]);
   const [recordingTags, setRecordingTags] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingFinalization, setRecordingFinalization] = useState<RecordingFinalization>({
+    active: false,
+    message: "",
+    percent: 0
+  });
   const [elapsed, setElapsed] = useState(0);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [titleDraft, setTitleDraft] = useState("");
@@ -260,6 +274,8 @@ function App() {
   const [videoIsPlaying, setVideoIsPlaying] = useState(false);
   const [videoIsMuted, setVideoIsMuted] = useState(false);
   const [activeContentModal, setActiveContentModal] = useState<ContentModal>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [isDeletingMeeting, setIsDeletingMeeting] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -314,6 +330,12 @@ function App() {
 
   const recentMeetings = useMemo(() => meetings.slice(0, 5), [meetings]);
   const currentMeta = viewMeta[view];
+  const isFinalizingRecording = recordingFinalization.active;
+  const recordingHeaderStatus = isFinalizingRecording
+    ? recordingFinalization.message
+    : isRecording
+      ? `Gravando · ${formatDuration(elapsed)}`
+      : "Pronto";
 
   const refreshMeetings = useCallback(async () => {
     const loaded = await invoke<Meeting[]>("list_meetings");
@@ -420,14 +442,23 @@ function App() {
   );
 
   const stopRecording = useCallback(() => {
+    if (recordingFinalization.active) return;
     const recorder = recorderRef.current;
-    if (recorder && recorder.state !== "inactive") recorder.stop();
-  }, []);
+    if (recorder && recorder.state !== "inactive") {
+      setRecordingFinalization({
+        active: true,
+        message: "Encerrando captura",
+        percent: 8
+      });
+      recorder.stop();
+    }
+  }, [recordingFinalization.active]);
 
   const startRecording = useCallback(async () => {
     if (recorderRef.current?.state === "recording") return;
 
     setNotice("");
+    setRecordingFinalization({ active: false, message: "", percent: 0 });
     const { width, height } = resolutionDimensions(settings.resolution);
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: {
@@ -452,6 +483,13 @@ function App() {
     };
 
     recorder.onstop = async () => {
+      setRecordingFinalization({
+        active: true,
+        message: "Preparando arquivo de video",
+        percent: 18
+      });
+      await waitForUiPaint();
+
       if (timerRef.current) {
         window.clearInterval(timerRef.current);
         timerRef.current = null;
@@ -462,9 +500,21 @@ function App() {
 
       const startedAt = startedAtRef.current ?? new Date();
       const durationSeconds = Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 1000));
+      setRecordingFinalization({
+        active: true,
+        message: "Montando gravacao local",
+        percent: 34
+      });
+      await waitForUiPaint();
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
 
       try {
+        setRecordingFinalization({
+          active: true,
+          message: "Convertendo gravacao para salvamento",
+          percent: 48
+        });
+        await waitForUiPaint();
         const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
         const input: SaveRecordingInput = {
           title: recordingTitle.trim() || defaultMeetingTitle(),
@@ -476,7 +526,18 @@ function App() {
           fileExtension: settings.videoFileExtension,
           bytes
         };
+        setRecordingFinalization({
+          active: true,
+          message: "Salvando video no cofre local",
+          percent: 72
+        });
+        await waitForUiPaint();
         const saved = await invoke<Meeting>("save_recording", { input });
+        setRecordingFinalization({
+          active: true,
+          message: "Atualizando biblioteca",
+          percent: 92
+        });
         setMeetings((current) => [saved, ...current.filter((meeting) => meeting.id !== saved.id)]);
         setSelectedId(saved.id);
         setView("library");
@@ -497,6 +558,7 @@ function App() {
         startedAtRef.current = null;
         setElapsed(0);
         setIsRecording(false);
+        setRecordingFinalization({ active: false, message: "", percent: 0 });
       }
     };
 
@@ -539,10 +601,20 @@ function App() {
 
   const deleteMeeting = useCallback(async () => {
     if (!selectedMeeting) return;
-    await invoke("delete_meeting", { id: selectedMeeting.id });
-    const remaining = meetings.filter((meeting) => meeting.id !== selectedMeeting.id);
-    setMeetings(remaining);
-    setSelectedId(remaining[0]?.id || "");
+    setIsDeletingMeeting(true);
+    setNotice("");
+    try {
+      await invoke("delete_meeting", { id: selectedMeeting.id });
+      const remaining = meetings.filter((meeting) => meeting.id !== selectedMeeting.id);
+      setMeetings(remaining);
+      setSelectedId(remaining[0]?.id || "");
+      setDeleteConfirmOpen(false);
+      setNotice("Reuniao removida.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsDeletingMeeting(false);
+    }
   }, [meetings, selectedMeeting]);
 
   const updateQualityPreset = useCallback((preset: string) => {
@@ -599,6 +671,7 @@ function App() {
     setVideoDuration(0);
     setVideoIsPlaying(false);
     setActiveContentModal(null);
+    setDeleteConfirmOpen(false);
   }, [selectedMeeting?.id]);
 
   useEffect(() => {
@@ -619,14 +692,14 @@ function App() {
 
   const renderWindowControls = () => (
     <div className="window-controls">
-      <button onClick={() => invoke("minimize_window")} title="Minimizar">
-        <Minimize2 size={15} />
+      <button className="window-control minimize" onClick={() => invoke("minimize_window")} title="Minimizar" aria-label="Minimizar">
+        <span />
       </button>
-      <button onClick={() => invoke("toggle_maximize_window")} title="Maximizar">
-        <Maximize2 size={15} />
+      <button className="window-control maximize" onClick={() => invoke("toggle_maximize_window")} title="Maximizar" aria-label="Maximizar">
+        <span />
       </button>
-      <button className="close" onClick={() => invoke("hide_window")} title="Ocultar">
-        <X size={16} />
+      <button className="window-control close" onClick={() => invoke("hide_window")} title="Fechar" aria-label="Fechar">
+        <span />
       </button>
     </div>
   );
@@ -676,12 +749,24 @@ function App() {
           <div className="panel-heading">
             <div>
               <span>Operacao</span>
-              <h2>{isRecording ? "Gravacao em andamento" : "Nova gravacao"}</h2>
+              <h2>
+                {isFinalizingRecording
+                  ? "Finalizando gravacao"
+                  : isRecording
+                    ? "Gravacao em andamento"
+                    : "Nova gravacao"}
+              </h2>
             </div>
             <div className="button-row inline">
               <div className="recording-state">
                 <span className={isRecording ? "live-dot active" : "live-dot"} />
-                <strong>{isRecording ? formatDuration(elapsed) : `${settings.resolution} · ${settings.frameRate} fps`}</strong>
+                <strong>
+                  {isFinalizingRecording
+                    ? recordingFinalization.message
+                    : isRecording
+                      ? formatDuration(elapsed)
+                      : `${settings.resolution} · ${settings.frameRate} fps`}
+                </strong>
               </div>
               <button className="secondary-button" onClick={() => setView("video")}>
                 <SlidersHorizontal size={14} />
@@ -751,13 +836,32 @@ function App() {
                 )}
               </div>
             </label>
+            {isFinalizingRecording && (
+              <div className="recording-finalization">
+                <div>
+                  <Loader2 className="spin" size={15} />
+                  <span>{recordingFinalization.message}</span>
+                  <em>{recordingFinalization.percent}%</em>
+                </div>
+                <div className="progress-track">
+                  <span style={{ width: `${recordingFinalization.percent}%` }} />
+                </div>
+              </div>
+            )}
             <div>
               <button
                 className={isRecording ? "primary-button danger" : "primary-button"}
+                disabled={isFinalizingRecording}
                 onClick={() => (isRecording ? stopRecording() : startRecording())}
               >
-                {isRecording ? <Square size={16} /> : <Video size={16} />}
-                <span>{isRecording ? "Finalizar gravacao" : "Iniciar gravacao"}</span>
+                {isFinalizingRecording ? <Loader2 className="spin" size={16} /> : isRecording ? <Square size={16} /> : <Video size={16} />}
+                <span>
+                  {isFinalizingRecording
+                    ? "Salvando gravacao"
+                    : isRecording
+                      ? "Finalizar gravacao"
+                      : "Iniciar gravacao"}
+                </span>
               </button>
             </div>
           </div>
@@ -920,7 +1024,7 @@ function App() {
               >
                 <FolderOpen size={15} />
               </button>
-              <button className="icon-button danger" onClick={deleteMeeting} title="Excluir">
+              <button className="icon-button danger" onClick={() => setDeleteConfirmOpen(true)} title="Excluir">
                 <Trash2 size={15} />
               </button>
             </div>
@@ -1677,7 +1781,7 @@ function App() {
         <header className="chrome-bar" data-tauri-drag-region onPointerDown={startDraggingWindow}>
           <div className="chrome-title" data-tauri-drag-region>
             <span>Meeting Vault</span>
-            <em>{isRecording ? `Gravando · ${formatDuration(elapsed)}` : "Pronto"}</em>
+            <em>{recordingHeaderStatus}</em>
           </div>
           {renderWindowControls()}
         </header>
@@ -1694,10 +1798,11 @@ function App() {
             </button>
             <button
               className={isRecording ? "primary-button danger" : "primary-button"}
+              disabled={isFinalizingRecording}
               onClick={() => (isRecording ? stopRecording() : startRecording())}
             >
-              {isRecording ? <Square size={16} /> : <Video size={16} />}
-              {isRecording ? "Finalizar" : "Gravar"}
+              {isFinalizingRecording ? <Loader2 className="spin" size={16} /> : isRecording ? <Square size={16} /> : <Video size={16} />}
+              {isFinalizingRecording ? "Salvando" : isRecording ? "Finalizar" : "Gravar"}
             </button>
           </div>
         </section>
@@ -1717,6 +1822,17 @@ function App() {
         </section>
       </main>
       {renderContentModal()}
+      <ConfirmDialog
+        open={Boolean(selectedMeeting && deleteConfirmOpen)}
+        title="Remover gravacao?"
+        message="Esta acao remove a reuniao da biblioteca e apaga o arquivo de video local."
+        detail={selectedMeeting ? selectedMeeting.title : undefined}
+        confirmLabel="Remover video"
+        destructive
+        loading={isDeletingMeeting}
+        onConfirm={deleteMeeting}
+        onCancel={() => setDeleteConfirmOpen(false)}
+      />
     </div>
   );
 }

@@ -51,6 +51,7 @@ O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e w
 Arquivos principais:
 
 - `src/App.tsx`: UI, gravacao, eventos e chamadas Tauri.
+- `src/components/`: componentes globais reutilizaveis, iniciando por `ConfirmDialog`.
 - `src/types.ts`: tipos compartilhados no frontend.
 - `src/styles.css`: sistema visual.
 - `src-tauri/src/lib.rs`: comandos Tauri, tray, persistencia e pipelines.
@@ -60,6 +61,14 @@ Arquivos principais:
 - `docs/adr/`: decisoes arquiteturais registradas.
 - `memory-vault/00-index.md`: memoria em formato Obsidian.
 - `AGENTS.md`: instrucoes para agentes de IA.
+
+## Convencoes React
+
+- Preserve `src/App.tsx` como orquestrador de estado, views, eventos Tauri e chamadas de comandos.
+- Prefira extrair novos blocos de UI para componentes nomeados em `src/components/`.
+- Componentes globais ou reutilizaveis ficam direto em `src/components/`; componentes de uma view podem ganhar subpastas por dominio quando crescerem.
+- Componentes devem receber props e callbacks tipados, evitando acoplamento direto com Tauri quando o container puder coordenar a acao.
+- Antes de adicionar JSX grande em `App.tsx`, avalie se isso deve virar componente.
 
 ## Executar em desenvolvimento
 

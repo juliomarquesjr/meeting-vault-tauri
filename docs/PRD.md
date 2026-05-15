@@ -58,6 +58,7 @@ Todas as zonas usam `align-items: stretch` para garantir altura uniforme entre p
 - Tags adicionadas como badges removiveis (Enter ou virgula confirma cada tag).
 - Configuracao de resolucao maxima, FPS, bitrates e captura de audio do sistema quando disponivel.
 - Indicador de status inline no cabecalho do painel (resolucao, FPS e tempo gravando).
+- Ao finalizar uma gravacao, a UI exibe estado de finalizacao com etapas e barra de progresso estimada ate o video ser salvo e a biblioteca liberada.
 - Salvamento local por comando Tauri `save_recording`.
 - Abertura e revelacao do arquivo gravado pelo sistema operacional.
 
@@ -74,6 +75,7 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 **Painel direito — detalhe:**
 - Titulo editavel em campo de texto inline.
 - Barra de acoes: Salvar, Assistir no player nativo, Abrir pasta, Excluir.
+- A exclusao de uma reuniao/video exige confirmacao em modal antes de remover o arquivo local.
 - Edicao de categoria (input com datalist) e tags (badges removiveis).
 - Metadados da reuniao: data, duracao, tamanho, status.
 - Player de video customizado: controles de play/pause, scrubber com progresso, volume, tela cheia. Overlay de play grande exibido quando o video esta pausado.
@@ -178,8 +180,9 @@ Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao A
 2. UI chama `getDisplayMedia`.
 3. `MediaRecorder` captura chunks de video.
 4. Ao parar, o blob vira bytes.
-5. Frontend chama `save_recording`.
-6. Backend salva arquivo em `recordings/` e atualiza `store.json`.
+5. UI exibe finalizacao da gravacao com etapas: encerrar captura, montar arquivo, converter bytes, salvar no cofre e atualizar biblioteca.
+6. Frontend chama `save_recording`.
+7. Backend salva arquivo em `recordings/` e atualiza `store.json`.
 
 ### Processamento local
 

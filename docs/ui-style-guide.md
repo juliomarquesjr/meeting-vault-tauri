@@ -107,6 +107,38 @@ Modificadores:
 
 ---
 
+## 3.1 Componentizacao de UI
+
+Ao criar ou alterar interfaces, priorize separar responsabilidades em componentes React pequenos e nomeados.
+
+- Componentes globais/reutilizaveis ficam em `src/components/`.
+- Componentes especificos de uma view podem ganhar subpastas por dominio quando a view crescer.
+- Extraia componentes para modais, paineis, cards complexos, formularios, toolbars e fluxos com estado proprio.
+- `App.tsx` deve coordenar estado, views e callbacks; componentes devem focar em renderizacao e eventos de UI.
+- Props devem ser explicitas e tipadas. Evite componentes que leem/escrevem estado global implicitamente.
+- Ao criar componente visual novo, documente suas classes CSS e estados neste guia.
+
+---
+
+### Modal de Confirmacao
+
+O componente global `ConfirmDialog` vive em `src/components/ConfirmDialog.tsx` e deve ser usado para acoes destrutivas ou irreversiveis.
+
+```
+.confirm-dialog-backdrop
+  .confirm-dialog
+    .confirm-dialog-header
+      .confirm-dialog-icon
+    .confirm-dialog-detail?
+    .confirm-dialog-actions
+```
+
+- Variante destrutiva usa `primary-button danger` para a confirmacao.
+- O modal fecha por cancelar, clicar fora ou `Esc`, exceto durante `loading`.
+- O conteudo deve deixar explicito o impacto da acao antes do usuario confirmar.
+
+---
+
 ## 4. Inputs e Selects
 
 Todos herdam os estilos globais de `src/styles.css`.
@@ -207,6 +239,7 @@ O tipo de documentacao que descreve o posicionamento dos elementos em uma tela e
 | `.recent-frame` | Extende `dashboard-frame` com lista com scroll |
 | `.dash-rec-form` | Formulario inline de gravacao (sem wrapper duplo) |
 | `.dash-rec-row` | Grid 1.6fr / 1fr para Titulo e Categoria |
+| `.recording-finalization` | Estado de finalizacao apos parar gravacao, com etapa atual e barra de progresso estimada |
 
 ---
 

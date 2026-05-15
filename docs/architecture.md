@@ -33,6 +33,19 @@ flowchart LR
 
 Arquivo principal: `src/App.tsx`.
 
+Componentes globais:
+
+- `src/components/ConfirmDialog.tsx`: modal reutilizavel para confirmacoes, usado inicialmente antes de excluir reunioes/videos.
+
+Diretriz de componentizacao:
+
+- `App.tsx` deve evoluir para um orquestrador: estado de alto nivel, selecao de views, eventos Tauri e callbacks de comandos.
+- Novas experiencias visuais relevantes devem ser criadas como componentes React separados sempre que tiverem estado proprio, fluxo proprio, JSX extenso ou potencial de reuso.
+- Componentes globais e reutilizaveis ficam em `src/components/`.
+- Componentes especificos de uma view devem ser organizados por dominio quando forem extraidos, por exemplo `src/components/library/` ou `src/components/settings/`.
+- Props devem ser explicitas e tipadas; componentes nao devem chamar Tauri diretamente quando puderem receber callbacks do container.
+- CSS continua centralizado em `src/styles.css` ate existir decisao formal de modularizacao de estilos.
+
 Responsabilidades:
 
 - Gerenciar views: dashboard, biblioteca, categorias/tags, configuracoes, video/qualidade e integracoes.

@@ -17,9 +17,17 @@ O pipeline de IA atual e apenas transcricao (FFmpeg + Whisper). O resumo com LLM
 ## Areas sensiveis
 
 - `src-tauri/src/lib.rs`: persistencia e execucao de processos externos.
-- `src/App.tsx`: estado amplo em um unico componente.
+- `src/App.tsx`: estado amplo em um unico componente. Priorize reduzir crescimento extraindo componentes React quando houver novo fluxo visual ou JSX extenso.
+- `src/components/`: componentes globais/reutilizaveis. Novos componentes devem ter props explicitas, tipos TypeScript e nao devem chamar Tauri diretamente quando o container puder receber callbacks.
 - `src/styles.css`: sistema visual compartilhado.
 - Configuracoes locais do usuario em `%APPDATA%`.
+
+## Diretriz React para proximos agentes
+
+- Prefira separacao de responsabilidades no estilo comum da comunidade React: componentes pequenos, nomeados e focados em uma responsabilidade.
+- `App.tsx` deve orquestrar estado, views e comandos; componentes devem renderizar UI e emitir callbacks.
+- Extraia componentes quando houver modal, painel, card complexo, formulario, toolbar ou fluxo com estado proprio.
+- Mantenha CSS no design system atual e documente novas classes em `docs/ui-style-guide.md`.
 
 ## Regra de documentacao
 

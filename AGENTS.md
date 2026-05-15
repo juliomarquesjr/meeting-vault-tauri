@@ -17,6 +17,7 @@ Antes de implementar mudancas relevantes, leia:
 ## Stack e responsabilidades
 
 - `src/App.tsx`: UI React, estado, gravacao, eventos Tauri e chamadas de comandos.
+- `src/components/`: componentes React reutilizaveis e globais. Prefira extrair novos fluxos visuais para componentes nomeados em vez de aumentar `App.tsx`.
 - `src/styles.css`: design system e layout.
 - `src/types.ts`: contratos TypeScript.
 - `src-tauri/src/lib.rs`: comandos Tauri, tray, persistencia, FFmpeg, Whisper e API.
@@ -28,6 +29,10 @@ Antes de implementar mudancas relevantes, leia:
 - Nao transforme o produto em apenas um MVP visual.
 - Mantenha a UI profissional, densa e operacional.
 - Prefira alteracoes pequenas e coerentes com os padroes existentes.
+- Priorize separacao de responsabilidades em componentes React pequenos, previsiveis e nomeados, seguindo pratica comum da comunidade React.
+- Mantenha `App.tsx` como orquestrador de estado, views e chamadas Tauri; evite adicionar novos blocos grandes de JSX diretamente nele quando puder criar componente dedicado.
+- Componentes globais/reutilizaveis devem ficar em `src/components/`; componentes especificos de uma view devem ser extraidos para subpastas claras quando essa view comecar a crescer.
+- Ao extrair componentes, preserve props explicitas, tipos TypeScript e estilos existentes; nao introduza gerenciador de estado global sem decisao arquitetural.
 - Nao mova configuracoes locais do usuario para arquivos versionados.
 - Nao salve API keys no repositorio.
 - Nao reverta alteracoes existentes sem confirmacao explicita.

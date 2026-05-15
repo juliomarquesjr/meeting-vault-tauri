@@ -3,11 +3,20 @@
 ## Arquivos centrais
 
 - `src/App.tsx`: UI, estado, gravacao, comandos Tauri e eventos.
+- `src/components/ConfirmDialog.tsx`: componente global de confirmacao para acoes destrutivas.
 - `src/types.ts`: contratos TypeScript de `Meeting`, `Settings` e inputs.
 - `src/styles.css`: sistema visual dark mode.
 - `src-tauri/src/lib.rs`: comandos Tauri, persistencia, tray e pipelines.
 - `src-tauri/tauri.conf.json`: janela, bundle, dev server e protocolo de assets.
 - `src-tauri/capabilities/default.json`: permissoes Tauri.
+
+## Convencao de componentes React
+
+- `App.tsx` deve ser tratado como container/orquestrador, nao como destino padrao para todo JSX novo.
+- `src/components/` concentra componentes globais e reutilizaveis.
+- Componentes especificos de view podem ser agrupados por dominio conforme a extracao avancar.
+- Componentes recebem props/callbacks tipados; chamadas Tauri devem permanecer preferencialmente no container ou em camada explicitamente documentada.
+- Novas classes ou estruturas visuais extraidas devem ser registradas em `docs/ui-style-guide.md`.
 
 ## Fluxo de dados
 

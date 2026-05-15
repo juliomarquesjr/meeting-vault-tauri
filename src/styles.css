@@ -297,28 +297,85 @@ input[type="range"] {
 
 .window-controls {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
   height: 38px;
 }
 
 .window-controls button {
   display: grid;
-  width: 46px;
-  height: 38px;
+  width: 44px;
+  height: 34px;
+  margin-left: 2px;
   place-items: center;
-  color: var(--muted);
+  color: rgba(232, 234, 240, 0.8);
   background: transparent;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
+  border-radius: 0;
+  padding: 0;
 }
 
 .window-controls button:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.window-controls button:active {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .window-controls .close:hover {
   color: #fff;
-  background: rgba(239, 68, 68, 0.8);
+  background: #e81123;
+}
+
+.window-controls .window-control span {
+  display: inline-block;
+}
+
+.window-controls .window-control.minimize span {
+  width: 12px;
+  height: 2px;
+  background: currentColor;
+}
+
+.window-controls .window-control.maximize span {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid currentColor;
+  box-sizing: border-box;
+}
+
+.window-controls .window-control.close span {
+  position: relative;
+  width: 12px;
+  height: 12px;
+}
+
+.window-controls .window-control.close span::before,
+.window-controls .window-control.close span::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 1.5px;
+  background: currentColor;
+  transform-origin: center;
+}
+
+.window-controls .window-control.close span::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.window-controls .window-control.close span::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.window-controls button:focus-visible {
+  outline: 2px solid rgba(124, 58, 237, 0.5);
+  outline-offset: -2px;
 }
 
 /* ─── Content Header ─────────────────────────────────────────────────────── */
@@ -635,6 +692,39 @@ input[type="range"] {
   font-weight: 500;
   letter-spacing: 0.04em;
   color: var(--muted);
+}
+
+.recording-finalization {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.recording-finalization div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recording-finalization span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recording-finalization em {
+  color: var(--accent);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 /* ─── Dashboard ──────────────────────────────────────────────────────────── */
@@ -1625,6 +1715,87 @@ input[type="range"] {
   border: 0;
   border-radius: 0;
   overflow: auto;
+}
+
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.confirm-dialog {
+  width: min(460px, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.confirm-dialog-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.confirm-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.confirm-dialog-icon.danger {
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.26);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.confirm-dialog-header h2 {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.confirm-dialog-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.confirm-dialog-detail {
+  margin: 14px 16px 0;
+  padding: 10px 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 16px 16px;
 }
 
 .summary-empty,
