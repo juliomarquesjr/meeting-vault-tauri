@@ -270,6 +270,7 @@ O player e totalmente customizado. Nao usa `<video controls>`.
 | Processando | `.content-processing` | Mensagem + barra de progresso (`.progress-track`) |
 | Modal | `.content-modal` | Leitura de transcricao ou resumo em overlay dedicado |
 | Texto do modal | `.content-modal-text` | Texto scrollavel com `white-space: pre-wrap` |
+| Markdown do resumo | `.markdown-content` | Renderiza Markdown do resumo; transcricao permanece texto puro |
 
 ### Resumo
 
@@ -287,7 +288,10 @@ O detalhe da biblioteca inclui card de resumo ao lado do card de transcricao:
 ```
 
 - `.content-action-card` usa `secondary-button compact` para "Abrir" e "Gerar".
+- Cards usam `repeat(auto-fit, minmax(240px, 1fr))` e viram layout vertical em larguras menores.
 - `.content-modal` e usado para ler transcricao e resumo sem ocupar altura permanente no detalhe.
+- Acoes de reprocessamento (`Retranscrever`, `Regenerar`) ficam no cabecalho do modal, nao nos cards.
+- Resumos gerados em Markdown sao renderizados com `react-markdown` dentro de `.markdown-content`; HTML bruto nao deve ser habilitado.
 - O roxo permanece restrito ao foco/status/CTA principal; o resumo usa acao secundaria porque depende de servico externo opcional.
 
 ## 9. Telas de Configuracao

@@ -42,6 +42,7 @@ import {
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import ReactMarkdown from "react-markdown";
 import type { Meeting, ProcessingProgress, SaveRecordingInput, Settings } from "./types";
 
 type View = "dashboard" | "library" | "taxonomy" | "settings" | "summary" | "video" | "integrations";
@@ -1088,16 +1089,9 @@ function App() {
             </div>
             <div className="content-action-buttons">
               {selectedMeeting.transcript ? (
-                <>
-                  <button className="secondary-button compact" onClick={() => setActiveContentModal("transcript")}>
-                    <ExternalLink size={14} /> Abrir
-                  </button>
-                  {!isProcessing && (
-                    <button className="text-button" onClick={() => transcribeMeeting(selectedMeeting)}>
-                      <RefreshCcw size={13} /> Retranscrever
-                    </button>
-                  )}
-                </>
+                <button className="secondary-button compact" onClick={() => setActiveContentModal("transcript")}>
+                  <ExternalLink size={14} /> Abrir
+                </button>
               ) : (
                 <button
                   className="primary-button compact"
@@ -1126,16 +1120,9 @@ function App() {
             </div>
             <div className="content-action-buttons">
               {selectedMeeting.summary ? (
-                <>
-                  <button className="secondary-button compact" onClick={() => setActiveContentModal("summary")}>
-                    <ExternalLink size={14} /> Abrir
-                  </button>
-                  {!isProcessing && (
-                    <button className="text-button" onClick={() => summarizeMeeting(selectedMeeting)}>
-                      <RefreshCcw size={13} /> Regenerar
-                    </button>
-                  )}
-                </>
+                <button className="secondary-button compact" onClick={() => setActiveContentModal("summary")}>
+                  <ExternalLink size={14} /> Abrir
+                </button>
               ) : selectedMeeting.transcript ? (
                 <button
                   className="secondary-button compact"
@@ -1603,6 +1590,9 @@ function App() {
     if (!content) return null;
     const title = isTranscript ? "Transcricao" : "Resumo";
     const Icon = isTranscript ? Bot : Cloud;
+    const rerunLabel = isTranscript ? "Retranscrever" : "Regenerar";
+    const rerunAction = isTranscript ? transcribeMeeting : summarizeMeeting;
+    const modalIsProcessing = selectedMeeting.status === "processing" || processingIds.has(selectedMeeting.id);
 
     return (
       <div className="content-modal-backdrop" onMouseDown={() => setActiveContentModal(null)}>
@@ -1613,12 +1603,25 @@ function App() {
               <h2>{selectedMeeting.title}</h2>
               <em>{formatTextStats(content)}</em>
             </div>
-            <button className="icon-button" onClick={() => setActiveContentModal(null)} title="Fechar">
-              <X size={16} />
-            </button>
+            <div className="content-modal-actions">
+              {!modalIsProcessing && (
+                <button
+                  className="secondary-button compact"
+                  onClick={() => {
+                    setActiveContentModal(null);
+                    void rerunAction(selectedMeeting);
+                  }}
+                >
+                  <RefreshCcw size={13} /> {rerunLabel}
+                </button>
+              )}
+              <button className="icon-button" onClick={() => setActiveContentModal(null)} title="Fechar">
+                <X size={16} />
+              </button>
+            </div>
           </header>
-          <div className={isTranscript ? "content-modal-text transcript-text" : "content-modal-text summary-text"}>
-            {content}
+          <div className={isTranscript ? "content-modal-text transcript-text" : "content-modal-text markdown-content"}>
+            {isTranscript ? content : <ReactMarkdown>{content}</ReactMarkdown>}
           </div>
         </section>
       </div>

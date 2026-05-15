@@ -79,6 +79,8 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 - Player de video customizado: controles de play/pause, scrubber com progresso, volume, tela cheia. Overlay de play grande exibido quando o video esta pausado.
 - Area de conteudo com dois cards de acao: Transcricao e Resumo.
 - Quando transcricao ou resumo existem, o usuario abre o conteudo em modal proprio acionado por botao.
+- Acoes de reprocessamento ficam dentro do modal aberto: `Retranscrever` para transcricao e `Regenerar` para resumo.
+- O modal de resumo interpreta Markdown basico; o modal de transcricao permanece como texto puro.
 - Estados vazios mantem CTA contextual: transcrever, gerar resumo ou informar que o resumo exige transcricao.
 
 ### 6.4 Taxonomia
