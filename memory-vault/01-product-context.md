@@ -29,7 +29,7 @@ Meeting Vault deve parecer uma ferramenta profissional de operacao, nao um MVP s
 
 ## Funcionalidades diferidas
 
-- Resumo executivo com acoes e decisoes — removido desta fase, ver [[../docs/adr/0005-remove-summarization|ADR 0005]].
+- Resumo executivo com acoes e decisoes — disponivel apenas via OpenRouter opt-in, em tela separada de resumo; llama.cpp continua removido, ver [[../docs/adr/0005-remove-summarization|ADR 0005]] e [[../docs/adr/0006-openrouter-summary|ADR 0006]].
 - Identificacao de participantes e diarizacao.
 - Integracoes reais com calendario, Notion e CRM.
 

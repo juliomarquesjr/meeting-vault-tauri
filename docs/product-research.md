@@ -19,7 +19,7 @@
 
 ## Funcionalidades diferidas
 
-- Resumo estruturado com decisoes e proximas acoes — diferido para fase posterior (ver ADR 0005).
+- Resumo estruturado com decisoes e proximas acoes — reintroduzido apenas via OpenRouter opt-in (ver ADR 0006).
 - Identificacao de participantes e diarizacao.
 - Integracoes externas (calendario, Notion, CRM).
 
@@ -29,4 +29,4 @@
 - Rust no backend para tray, persistencia local e chamadas de API.
 - JSON local no MVP; SQLite entra quando houver filtros, tags, participantes e historico maior.
 - OpenAI configuravel: `gpt-4o-mini-transcribe` como modelo padrao de transcricao via API.
-- Proximo passo para producao: exportar transcricao em Markdown/TXT e adicionar teste de configuracao local.
+- Proximo passo para producao: exportar transcricao/resumo em Markdown/TXT e adicionar teste de configuracao local.

@@ -10,6 +10,7 @@ Antes de implementar mudancas relevantes, leia:
 
 - `docs/PRD.md`
 - `docs/architecture.md`
+- `docs/ui-style-guide.md` — obrigatorio antes de qualquer mudanca visual
 - `docs/product-research.md`
 - `memory-vault/00-index.md`
 
@@ -33,9 +34,15 @@ Antes de implementar mudancas relevantes, leia:
 
 ## Design
 
-- Dark mode com linguagem visual roxa, mas sem visual infantil.
-- Sidebar agrupada por areas.
-- Paineis consistentes, botoes alinhados e hierarquia clara.
+Leia `docs/ui-style-guide.md` antes de qualquer mudanca visual. Regras criticas:
+
+- `--accent` (roxo) e usado **apenas** em CTAs, item ativo da sidebar (borda esquerda), foco de input e status-line. Nunca como fundo de cards ou elementos decorativos.
+- Hierarquia de botoes: `primary-button` para CTA unica por tela, `secondary-button` para acoes neutras, `icon-button` para acoes de icone, `text-button` para acoes terciarias.
+- Paineis no mesmo `.dash-main-row` ou `.dash-footer-row` usam `align-items: stretch` para altura uniforme.
+- Player de video e totalmente customizado — nao use `<video controls>`.
+- Tags sao badges removiveis com campo de input inline (`.tags-input-container`).
+- Formularios usam `label > span + input/select`, com `span` em `11px / 500 weight`.
+- Sidebar: item ativo usa `border-left: 2px solid var(--accent)` + `background: var(--surface-2)`. Nunca fundo roxo solido.
 - Evite landing page; o primeiro uso deve ser o app em si.
 - Para mudancas visuais importantes, rode o app e valide em tela.
 
@@ -87,7 +94,8 @@ O que atualizar dependendo do tipo de mudanca:
 | Mudanca arquitetural | `docs/architecture.md`, ADR novo ou revisado em `docs/adr/`, `memory-vault/02-architecture-map.md` |
 | Mudanca de pipeline de IA | `docs/architecture.md`, `memory-vault/03-local-ai-runbook.md`, ADR se for decisao permanente |
 | Mudanca de modelo de dados | `docs/PRD.md` (secao 9), `src/types.ts`, `memory-vault/02-architecture-map.md` |
-| Mudanca de comportamento de UI | `docs/PRD.md` (secao 6), `README.md` se afeta configuracao do usuario |
+| Mudanca de comportamento de UI | `docs/PRD.md` (secao 6), `docs/ui-style-guide.md` se mudar tokens/componentes/layout |
+| Novo componente ou view | `docs/ui-style-guide.md` com tokens, classes CSS e diagrama de layout |
 | Decisao tecnica permanente | Novo ADR em `docs/adr/` com status, contexto, decisao e consequencias |
 
 Ao tomar decisoes arquiteturais relevantes, crie sempre um ADR em `docs/adr/` com numeracao sequencial.

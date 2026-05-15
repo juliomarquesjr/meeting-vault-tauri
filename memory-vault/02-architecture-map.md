@@ -18,6 +18,7 @@
 5. Rust grava video em `recordings/` e metadados em `store.json`.
 6. Processamento atualiza `Meeting` e emite `processing-progress`.
 7. React reflete progresso e resultado.
+8. Resumo OpenRouter, quando acionado, usa a transcricao existente e salva `summary`.
 
 ## Comandos Tauri usados pela UI
 
@@ -30,6 +31,7 @@
 - `open_recording`
 - `reveal_recording`
 - `transcribe_meeting`
+- `summarize_meeting`
 - `minimize_window`
 - `toggle_maximize_window`
 - `hide_window`
@@ -37,9 +39,9 @@
 
 ## Modelo de dados — Meeting
 
-Campos ativos: `id`, `title`, `createdAt`, `startedAt`, `category`, `tags`, `durationSeconds`, `sizeBytes`, `recordingPath`, `mimeType`, `transcript`, `status`, `progressMessage`, `progressPercent`, `error`.
+Campos ativos: `id`, `title`, `createdAt`, `startedAt`, `category`, `tags`, `durationSeconds`, `sizeBytes`, `recordingPath`, `mimeType`, `transcript`, `summary`, `status`, `progressMessage`, `progressPercent`, `error`.
 
-Campos removidos (nao mais presentes nos tipos): `summary`, `actionItems`, `decisions`. Dados antigos no `store.json` com esses campos sao ignorados silenciosamente.
+Campos removidos (nao mais presentes nos tipos): `actionItems`, `decisions`. Dados antigos no `store.json` com esses campos sao ignorados silenciosamente.
 
 ## Dados locais
 

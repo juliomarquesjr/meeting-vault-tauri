@@ -12,6 +12,7 @@ export interface Meeting {
   recordingPath: string;
   mimeType: string;
   transcript: string;
+  summary: string;
   status: MeetingStatus;
   progressMessage: string;
   progressPercent: number;
@@ -29,6 +30,9 @@ export interface Settings {
   apiKey: string;
   processingMode: string;
   transcriptionModel: string;
+  summaryMode: string;
+  openRouterApiKey: string;
+  openRouterModel: string;
   language: string;
   ffmpegPath: string;
   whisperCliPath: string;

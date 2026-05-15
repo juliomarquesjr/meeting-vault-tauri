@@ -2,7 +2,7 @@
 
 ## 1. Visao geral
 
-Meeting Vault e um aplicativo desktop local-first para Windows, focado em gravar reunioes, preservar o video compactado e transcrever o audio localmente. O produto prioriza controle local dos dados, operacao por tray do sistema e uma biblioteca pesquisavel para consulta posterior.
+Meeting Vault e um aplicativo desktop local-first para Windows, focado em gravar reunioes, preservar o video compactado, transcrever o audio localmente e, quando o usuario optar, gerar resumos de transcricoes via OpenRouter. O produto prioriza controle local dos dados, operacao por tray do sistema e uma biblioteca pesquisavel para consulta posterior.
 
 O app atual usa Tauri 2, React, TypeScript e Rust. A captura de tela ocorre no WebView2 via `MediaRecorder`; a persistencia e local em JSON; o processamento local usa FFmpeg e whisper.cpp. Tambem existe caminho opcional por API para transcricao.
 
@@ -28,7 +28,8 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 
 ## 5. Nao objetivos nesta fase
 
-- Sumarizacao automatica de reunioes (removida — ver ADR 0005).
+- Sumarizacao local com llama.cpp ou modelos GGUF nesta fase (removida — ver ADR 0005).
+- Sumarizacao obrigatoria ou sem consentimento explicito do usuario.
 - Sincronizacao multiusuario.
 - Backend remoto.
 - Compartilhamento publico de videos.
@@ -41,28 +42,44 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 
 ### 6.1 Dashboard
 
-- Resumo operacional da biblioteca.
-- Metricas de duracao, armazenamento, reunioes transcritas e estado de processamento.
-- Painel de nova gravacao.
-- Lista de reunioes recentes.
-- Indicadores de pipeline e estado local.
+Layout em tres zonas verticais (ver `docs/ui-style-guide.md` para especificacao de layout):
+
+- **Zona KPI:** quatro tiles com metrica principal e contexto secundario — reunioes gravadas, tempo total gravado, percentual transcrito e armazenamento consumido.
+- **Zona principal:** formulario de nova gravacao (titulo, categoria, tags, botao de iniciar/finalizar) ao lado da lista das cinco reunioes mais recentes com scroll proprio. O indicador de status de captura (resolucao, FPS, tempo gravando) fica inline no cabecalho do painel.
+- **Zona rodape:** estado do pipeline (transcritas, processando, com erro, duracao media) ao lado do resumo de taxonomia (contagem de categorias e tags, tag cloud).
+
+Todas as zonas usam `align-items: stretch` para garantir altura uniforme entre paineis da mesma linha.
 
 ### 6.2 Gravacao
 
 - Captura de tela via `navigator.mediaDevices.getDisplayMedia`.
 - Gravacao em WebM via `MediaRecorder`.
+- Campo de titulo, categoria e tags configurados antes de iniciar a gravacao.
+- Tags adicionadas como badges removiveis (Enter ou virgula confirma cada tag).
 - Configuracao de resolucao maxima, FPS, bitrates e captura de audio do sistema quando disponivel.
+- Indicador de status inline no cabecalho do painel (resolucao, FPS e tempo gravando).
 - Salvamento local por comando Tauri `save_recording`.
 - Abertura e revelacao do arquivo gravado pelo sistema operacional.
 
 ### 6.3 Biblioteca
 
-- Lista de reunioes ordenada por data.
-- Busca por titulo, categoria, tags e transcricao.
-- Filtros por categoria e tag.
-- Edicao de titulo, categoria e tags.
-- Player local usando `convertFileSrc`.
-- Exclusao de reuniao e arquivo associado.
+Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e scroll independente.
+
+**Painel esquerdo — lista:**
+- Reunioes ordenadas por data, exibidas como linhas compactas com barra de status colorida lateral.
+- Busca full-text por titulo, categoria, tags e transcricao.
+- Filtros por categoria e tag em selects customizados.
+- Botao de refresh para recarregar a lista.
+
+**Painel direito — detalhe:**
+- Titulo editavel em campo de texto inline.
+- Barra de acoes: Salvar, Assistir no player nativo, Abrir pasta, Excluir.
+- Edicao de categoria (input com datalist) e tags (badges removiveis).
+- Metadados da reuniao: data, duracao, tamanho, status.
+- Player de video customizado: controles de play/pause, scrubber com progresso, volume, tela cheia. Overlay de play grande exibido quando o video esta pausado.
+- Area de conteudo com dois cards de acao: Transcricao e Resumo.
+- Quando transcricao ou resumo existem, o usuario abre o conteudo em modal proprio acionado por botao.
+- Estados vazios mantem CTA contextual: transcrever, gerar resumo ou informar que o resumo exige transcricao.
 
 ### 6.4 Taxonomia
 
@@ -82,7 +99,15 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 - Modo API para transcricao via endpoint de audio da OpenAI (`/v1/audio/transcriptions`).
 - Modo hibrido que tenta local primeiro e usa API como fallback quando ha chave configurada.
 
-### 6.7 Tray e janela
+### 6.7 Resumo por OpenRouter
+
+- Resumo de transcricoes sob demanda, separado do comando de transcricao.
+- Modos de resumo limitados a `Desativado` e `OpenRouter`.
+- Configuracao em tela propria de Resumo, separada da tela de Transcricao/Whisper.
+- O usuario configura a chave OpenRouter e o ID do modelo, permitindo testar modelos free trocando apenas o `model`.
+- A transcricao e enviada ao OpenRouter somente quando o usuario aciona o resumo e o modo OpenRouter esta configurado.
+
+### 6.8 Tray e janela
 
 - Tray nativo com abrir biblioteca, iniciar gravacao, finalizar gravacao e sair.
 - Janela sem decoracao nativa do Windows.
@@ -105,7 +130,7 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 | RF-010 | O usuario deve acompanhar progresso do processamento. | Implementado |
 | RF-011 | O usuario deve configurar caminhos de ferramentas e modelos locais. | Implementado |
 | RF-012 | O app deve suportar fallback por API quando configurado. | Implementado |
-| RF-013 | O app deve gerar resumo estruturado de reunioes. | Planejado (ver ADR 0005) |
+| RF-013 | O app deve gerar resumo estruturado de transcricoes via OpenRouter quando configurado. | Implementado |
 | RF-014 | O app deve permitir integracoes externas no futuro. | Planejado |
 | RF-015 | O app deve migrar persistencia para SQLite quando a biblioteca crescer. | Planejado |
 
@@ -133,6 +158,7 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 - `recordingPath`: caminho local do video.
 - `mimeType`: MIME original do blob gravado.
 - `transcript`: texto transcrito.
+- `summary`: resumo da transcricao gerado via OpenRouter.
 - `status`: `recorded`, `processing`, `completed` ou `error`.
 - `progressMessage`: etapa atual.
 - `progressPercent`: percentual exibido.
@@ -140,7 +166,7 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 
 ### Settings
 
-Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video e automacao de transcricao.
+Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video, automacao de transcricao e configuracao de resumo (`disabled` ou `openrouter`, chave OpenRouter e modelo OpenRouter).
 
 ## 10. Fluxos principais
 
@@ -169,6 +195,14 @@ Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao A
 2. Se falhar e houver API key, usa transcricao via API da OpenAI.
 3. Se ambos falharem, marca reuniao como `error`.
 
+### Resumo OpenRouter
+
+1. Usuario aciona resumo em uma reuniao ja transcrita.
+2. Backend valida `summaryMode = openrouter`, chave OpenRouter e modelo configurado.
+3. Backend envia a transcricao ao endpoint `/api/v1/chat/completions` do OpenRouter.
+4. Para transcricoes longas, backend divide em partes, resume cada parte e consolida o resultado.
+5. Backend persiste `summary` no `store.json` e emite `processing-progress`.
+
 ## 11. Riscos e restricoes
 
 - `MediaRecorder` depende das capacidades do WebView2 e da fonte escolhida.
@@ -176,6 +210,7 @@ Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao A
 - JSON local e simples, mas nao ideal para biblioteca grande.
 - Caminhos absolutos para ferramentas e modelos sao configuracao local do usuario.
 - Transcricoes longas podem demorar varios minutos em hardware modesto.
+- Resumos OpenRouter enviam texto da transcricao para servico externo e dependem de limites, disponibilidade e politicas dos modelos free.
 
 ## 12. Roadmap sugerido
 
@@ -191,7 +226,7 @@ Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao A
 - Migrar `store.json` para SQLite.
 - Adicionar historico de processamento e logs por reuniao.
 - Implementar importacao de videos existentes.
-- Reintroduzir sumarizacao via API dedicada (Anthropic/OpenAI) — ver ADR 0005.
+- Refinar prompts e avaliacao de qualidade para sumarizacao OpenRouter.
 - Adicionar diarizacao ou identificacao manual de participantes.
 
 ### Longo prazo
@@ -200,4 +235,4 @@ Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao A
 - Integracoes com Notion/Obsidian.
 - Sincronizacao opcional.
 - Busca semantica local sobre transcricoes.
-- Sumarizacao local com modelo leve e configuravel.
+- Sumarizacao local com modelo leve e configuravel, se houver estrategia de produto e hardware clara.

@@ -20,6 +20,7 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - [ADR 0003](../docs/adr/0003-json-store-before-sqlite.md)
 - [ADR 0004](../docs/adr/0004-frameless-professional-dark-ui.md)
 - [ADR 0005](../docs/adr/0005-remove-summarization.md)
+- [ADR 0006](../docs/adr/0006-openrouter-summary.md)
 
 ## Estado rapido
 
@@ -29,4 +30,5 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - Gravacao via WebView2 `MediaRecorder`.
 - Processamento local com FFmpeg e whisper.cpp.
 - Sumarizacao com llama.cpp removida — ver ADR 0005.
+- Resumo de transcricoes reintroduzido somente como opcao OpenRouter sob demanda — ver ADR 0006.
 - Modo API/hibrido existe para transcricao, mas o produto deve continuar local-first.

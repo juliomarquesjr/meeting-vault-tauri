@@ -432,6 +432,18 @@ input[type="range"] {
   color: var(--text);
 }
 
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.secondary-button.compact {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 /* Icon button */
 .icon-button {
   width: 36px;
@@ -1459,6 +1471,191 @@ input[type="range"] {
   overflow: auto;
 }
 
+.content-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 16px 16px;
+}
+
+.content-processing {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  display: grid;
+  gap: 10px;
+}
+
+.content-action-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.content-action-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.content-action-copy div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.content-action-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.content-action-copy em {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.content-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.content-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.content-modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(920px, 100%);
+  max-height: min(760px, calc(100vh - 64px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.content-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.content-modal-header div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.content-modal-header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.content-modal-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-modal-header em {
+  color: var(--muted-2);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.content-modal-text {
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: auto;
+}
+
+.summary-empty,
+.summary-text {
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.summary-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.summary-text {
+  max-height: 180px;
+  overflow: auto;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.content-modal-text.transcript-text,
+.content-modal-text.summary-text {
+  max-height: none;
+  min-height: 0;
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-2);
+  overflow: auto;
+}
+
 /* ─── Taxonomy View ──────────────────────────────────────────────────────── */
 .taxonomy-view {
   display: grid;
@@ -1754,7 +1951,8 @@ input[type="range"] {
   .dash-main-row,
   .dash-footer-row,
   .library-view,
-  .taxonomy-view {
+  .taxonomy-view,
+  .content-actions {
     grid-template-columns: 1fr;
   }
 

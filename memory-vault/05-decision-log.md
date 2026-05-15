@@ -7,6 +7,7 @@
 - [[../docs/adr/0003-json-store-before-sqlite|ADR 0003]]: usar store JSON antes de SQLite.
 - [[../docs/adr/0004-frameless-professional-dark-ui|ADR 0004]]: UI profissional dark mode com janela sem decoracao nativa.
 - [[../docs/adr/0005-remove-summarization|ADR 0005]]: remover sumarizacao com LLM desta fase (2026-05-14).
+- [[../docs/adr/0006-openrouter-summary|ADR 0006]]: reintroduzir resumo somente via OpenRouter opt-in (2026-05-15).
 - Bootstrap local: `tools/` e `models/` ficam fora do Git; `scripts/bootstrap-local-ai.ps1` baixa FFmpeg, whisper.cpp e modelo Whisper para uma maquina nova.
 
 ## Decisoes pendentes

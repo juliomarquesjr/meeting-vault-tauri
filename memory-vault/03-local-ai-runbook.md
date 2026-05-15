@@ -7,7 +7,7 @@
 3. Transcrever com whisper.cpp.
 4. Persistir transcricao.
 
-O resumo com llama.cpp foi removido desta fase. Ver [[../docs/adr/0005-remove-summarization|ADR 0005]].
+O resumo com llama.cpp foi removido desta fase. Ver [[../docs/adr/0005-remove-summarization|ADR 0005]]. O resumo voltou apenas como opcao OpenRouter sob demanda, separada do pipeline local.
 
 ## Ferramentas esperadas
 
@@ -62,3 +62,4 @@ Acao:
 - Evitar commitar modelos e binarios grandes.
 - Ao mudar o pipeline, manter mensagens de progresso claras em cada etapa.
 - O comando Tauri e `transcribe_meeting`, nao `transcribe_and_summarize`.
+- O comando de resumo e `summarize_meeting` e deve aceitar apenas os modos `disabled` e `openrouter`.

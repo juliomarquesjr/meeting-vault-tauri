@@ -2,7 +2,7 @@
 
 Meeting Vault e um aplicativo desktop Windows para gravar reunioes, salvar o video localmente e transcrever o audio com privacidade.
 
-O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e whisper.cpp. Tambem existe modo API e modo hibrido para fallback quando uma chave da OpenAI estiver configurada.
+O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e whisper.cpp. Tambem existe modo API e modo hibrido para fallback quando uma chave da OpenAI estiver configurada. Resumos sao opcionais e usam OpenRouter quando o usuario configura uma chave propria.
 
 ## Stack
 
@@ -23,9 +23,10 @@ O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e w
 - Biblioteca local com busca, categorias, tags e player de video.
 - Edicao de titulo, categoria e tags da reuniao.
 - Configuracoes de video: extensao, qualidade, resolucao, FPS, bitrates e audio.
-- Configuracoes de IA: modo local/API/hibrido, idioma, caminhos de ferramentas e modelo Whisper.
+- Configuracoes de transcricao: modo local/API/hibrido, idioma, caminhos de ferramentas e modelo Whisper.
 - Progresso de transcricao em tempo real.
 - Transcricao exibida diretamente na biblioteca.
+- Resumo sob demanda de transcricoes via OpenRouter, com modelo configuravel.
 
 ## Estrutura
 
@@ -118,7 +119,7 @@ Conteudo esperado:
 
 ## Configuracao local de IA
 
-No app, em Configuracoes, defina:
+No app, em Sistema > Transcricao, defina:
 
 - Caminho do FFmpeg.
 - Caminho do `whisper-cli`.
@@ -136,10 +137,20 @@ models\whisper\ggml-large-v3-turbo.bin
 
 Modelos Whisper maiores podem exigir mais memoria e tempo de CPU. Para maquinas modestas, prefira `small` ou `medium` no script de bootstrap.
 
+## Resumo com OpenRouter
+
+No menu Sistema > Resumo, escolha:
+
+- `Desativado`: nao envia transcricoes para servicos externos.
+- `OpenRouter`: usa a chave OpenRouter do usuario e o ID de modelo configurado.
+
+O app envia apenas o texto da transcricao para `https://openrouter.ai/api/v1/chat/completions` quando o usuario aciona o resumo. Modelos free podem mudar limites, disponibilidade e politicas.
+
 ## Documentacao
 
 - [PRD](docs/PRD.md)
 - [Arquitetura](docs/architecture.md)
+- [UI Style Guide](docs/ui-style-guide.md) — tokens de design, componentes e especificacao de layout de cada tela
 - [Pesquisa de produto](docs/product-research.md)
 - [ADRs](docs/adr)
 - [Memory Vault](memory-vault/00-index.md)
@@ -150,5 +161,5 @@ Modelos Whisper maiores podem exigir mais memoria e tempo de CPU. Para maquinas 
 - Teste de configuracao local para FFmpeg e Whisper.
 - Exportacao de transcricao em Markdown/TXT.
 - Migracao de `store.json` para SQLite.
-- Reintroducao de sumarizacao via API dedicada (ver ADR 0005).
+- Refinamento de prompts e avaliacao de qualidade dos resumos OpenRouter.
 - Integracoes com calendario, Notion/Obsidian, Slack/Teams e CRM.

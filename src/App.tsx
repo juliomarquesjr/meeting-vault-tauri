@@ -44,12 +44,16 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { Meeting, ProcessingProgress, SaveRecordingInput, Settings } from "./types";
 
-type View = "dashboard" | "library" | "taxonomy" | "settings" | "video" | "integrations";
+type View = "dashboard" | "library" | "taxonomy" | "settings" | "summary" | "video" | "integrations";
+type ContentModal = "transcript" | "summary" | null;
 
 const defaultSettings: Settings = {
   apiKey: "",
   processingMode: "local",
   transcriptionModel: "gpt-4o-mini-transcribe",
+  summaryMode: "disabled",
+  openRouterApiKey: "",
+  openRouterModel: "arcee-ai/trinity-large-thinking:free",
   language: "pt",
   ffmpegPath: "ffmpeg",
   whisperCliPath: "whisper-cli",
@@ -84,9 +88,14 @@ const viewMeta: Record<View, { eyebrow: string; title: string; subtitle: string 
     subtitle: "Acompanhe a taxonomia usada para localizar reunioes rapidamente."
   },
   settings: {
-    eyebrow: "Sistema",
-    title: "Configuracoes",
-    subtitle: "Chaves, modelos de IA, idioma e comportamento automatico."
+    eyebrow: "IA local/API",
+    title: "Transcricao",
+    subtitle: "Transcricao, Whisper, OpenAI opcional, idioma e comportamento automatico."
+  },
+  summary: {
+    eyebrow: "IA externa",
+    title: "Resumo",
+    subtitle: "Resumo de transcricoes via OpenRouter, separado do pipeline de transcricao."
   },
   video: {
     eyebrow: "Captura",
@@ -118,7 +127,8 @@ const navGroups: Array<{
   {
     label: "Sistema",
     items: [
-      { view: "settings", label: "Configuracoes", icon: SettingsIcon },
+      { view: "settings", label: "Transcricao", icon: SettingsIcon },
+      { view: "summary", label: "Resumo", icon: Cloud },
       { view: "video", label: "Video e qualidade", icon: SlidersHorizontal },
       { view: "integrations", label: "Integracoes", icon: Workflow }
     ]
@@ -202,6 +212,13 @@ function formatVideoTime(seconds: number) {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+function formatTextStats(text: string) {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (!words) return "Sem conteudo";
+  if (words === 1) return "1 palavra";
+  return `${words.toLocaleString("pt-BR")} palavras`;
+}
+
 function recorderOptions(settings: Settings): MediaRecorderOptions {
   const candidates = [
     "video/webm;codecs=vp9,opus",
@@ -241,6 +258,7 @@ function App() {
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoIsPlaying, setVideoIsPlaying] = useState(false);
   const [videoIsMuted, setVideoIsMuted] = useState(false);
+  const [activeContentModal, setActiveContentModal] = useState<ContentModal>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -346,7 +364,58 @@ function App() {
         });
       }
     },
-    [refreshMeetings, settings.apiKey]
+    [refreshMeetings, settings.apiKey, settings.processingMode]
+  );
+
+  const summarizeMeeting = useCallback(
+    async (meeting: Meeting) => {
+      if (!meeting.transcript.trim()) {
+        setNotice("Transcreva a reuniao antes de gerar um resumo.");
+        return;
+      }
+
+      if (settings.summaryMode !== "openrouter") {
+        setView("summary");
+        setNotice("Ative o resumo com OpenRouter nas configuracoes.");
+        return;
+      }
+
+      if (!settings.openRouterApiKey.trim()) {
+        setView("summary");
+        setNotice("Configure a chave do OpenRouter antes de resumir.");
+        return;
+      }
+
+      setProcessingIds((current) => new Set(current).add(meeting.id));
+      setMeetings((current) =>
+        current.map((item) =>
+          item.id === meeting.id
+            ? {
+                ...item,
+                status: "processing",
+                progressMessage: "Iniciando resumo",
+                progressPercent: 1
+              }
+            : item
+        )
+      );
+      setNotice("");
+      try {
+        const updated = await invoke<Meeting>("summarize_meeting", { id: meeting.id });
+        setMeetings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        setSelectedId(updated.id);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+        await refreshMeetings();
+      } finally {
+        setProcessingIds((current) => {
+          const next = new Set(current);
+          next.delete(meeting.id);
+          return next;
+        });
+      }
+    },
+    [refreshMeetings, settings.openRouterApiKey, settings.summaryMode]
   );
 
   const stopRecording = useCallback(() => {
@@ -528,7 +597,17 @@ function App() {
     setVideoCurrentTime(0);
     setVideoDuration(0);
     setVideoIsPlaying(false);
+    setActiveContentModal(null);
   }, [selectedMeeting?.id]);
+
+  useEffect(() => {
+    if (!activeContentModal) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveContentModal(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [activeContentModal]);
 
   const startDraggingWindow = useCallback((event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -980,26 +1059,12 @@ function App() {
           </div>
         </div>
 
-        {/* Transcrição — 3 estados */}
-        <div className="transcript-section">
-          <div className="transcript-header">
-            <h3><Bot size={15} />Transcricao</h3>
-            {selectedMeeting.transcript && !isProcessing && (
-              <button
-                className="text-button"
-                onClick={() => transcribeMeeting(selectedMeeting)}
-              >
-                <RefreshCcw size={13} /> Retranscrever
-              </button>
-            )}
-          </div>
-
-          {/* Estado: processando */}
+        <div className="content-actions">
           {isProcessing && (
-            <div className="transcript-processing">
+            <div className="content-processing">
               <div className="transcript-processing-info">
                 <div>
-                  <span>{selectedMeeting.progressMessage || "Transcrevendo..."}</span>
+                  <span>{selectedMeeting.progressMessage || "Processando..."}</span>
                 </div>
                 <em>{percent}%</em>
               </div>
@@ -1009,26 +1074,83 @@ function App() {
             </div>
           )}
 
-          {/* Estado: vazio */}
-          {!selectedMeeting.transcript && !isProcessing && (
-            <div className="transcript-empty">
-              <Bot size={34} />
-              <p>Nenhuma transcricao disponivel</p>
-              <button
-                className="primary-button compact"
-                onClick={() => transcribeMeeting(selectedMeeting)}
-              >
-                <Bot size={15} /> Transcrever Agora
-              </button>
+          <section className="content-action-card">
+            <div className="content-action-copy">
+              <span className="content-action-icon"><Bot size={16} /></span>
+              <div>
+                <strong>Transcricao</strong>
+                <em>
+                  {selectedMeeting.transcript
+                    ? `Disponivel · ${formatTextStats(selectedMeeting.transcript)}`
+                    : "Ainda nao gerada"}
+                </em>
+              </div>
             </div>
-          )}
+            <div className="content-action-buttons">
+              {selectedMeeting.transcript ? (
+                <>
+                  <button className="secondary-button compact" onClick={() => setActiveContentModal("transcript")}>
+                    <ExternalLink size={14} /> Abrir
+                  </button>
+                  {!isProcessing && (
+                    <button className="text-button" onClick={() => transcribeMeeting(selectedMeeting)}>
+                      <RefreshCcw size={13} /> Retranscrever
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button
+                  className="primary-button compact"
+                  disabled={isProcessing}
+                  onClick={() => transcribeMeeting(selectedMeeting)}
+                >
+                  <Bot size={15} /> Transcrever
+                </button>
+              )}
+            </div>
+          </section>
 
-          {/* Estado: completo */}
-          {selectedMeeting.transcript && !isProcessing && (
-            <div className="transcript-text">
-              {selectedMeeting.transcript}
+          <section className="content-action-card">
+            <div className="content-action-copy">
+              <span className="content-action-icon"><Cloud size={16} /></span>
+              <div>
+                <strong>Resumo</strong>
+                <em>
+                  {selectedMeeting.summary
+                    ? `Disponivel · ${formatTextStats(selectedMeeting.summary)}`
+                    : selectedMeeting.transcript
+                      ? "Pode ser gerado com OpenRouter"
+                      : "Exige transcricao primeiro"}
+                </em>
+              </div>
             </div>
-          )}
+            <div className="content-action-buttons">
+              {selectedMeeting.summary ? (
+                <>
+                  <button className="secondary-button compact" onClick={() => setActiveContentModal("summary")}>
+                    <ExternalLink size={14} /> Abrir
+                  </button>
+                  {!isProcessing && (
+                    <button className="text-button" onClick={() => summarizeMeeting(selectedMeeting)}>
+                      <RefreshCcw size={13} /> Regenerar
+                    </button>
+                  )}
+                </>
+              ) : selectedMeeting.transcript ? (
+                <button
+                  className="secondary-button compact"
+                  disabled={isProcessing}
+                  onClick={() => summarizeMeeting(selectedMeeting)}
+                >
+                  <Cloud size={14} /> Gerar
+                </button>
+              ) : (
+                <button className="secondary-button compact" disabled>
+                  <Cloud size={14} /> Indisponivel
+                </button>
+              )}
+            </div>
+          </section>
         </div>
       </section>
     );
@@ -1289,6 +1411,57 @@ function App() {
     </div>
   );
 
+  const renderSummarySettings = () => (
+    <div className="settings-view">
+      <section className="settings-section">
+        <div className="panel-heading">
+          <div>
+            <span>IA externa</span>
+            <h2>Resumo via OpenRouter</h2>
+          </div>
+          <button className="primary-button compact" onClick={saveSettings}>
+            <Save size={16} /> Salvar
+          </button>
+        </div>
+        <div className="settings-grid">
+          <label>
+            <span>Resumo de transcricoes</span>
+            <select
+              value={settingsDraft.summaryMode}
+              onChange={(event) =>
+                setSettingsDraft((current) => ({ ...current, summaryMode: event.target.value }))
+              }
+            >
+              <option value="disabled">Desativado</option>
+              <option value="openrouter">OpenRouter</option>
+            </select>
+          </label>
+          <label>
+            <span>Modelo OpenRouter</span>
+            <input
+              value={settingsDraft.openRouterModel}
+              onChange={(event) =>
+                setSettingsDraft((current) => ({ ...current, openRouterModel: event.target.value }))
+              }
+              placeholder="arcee-ai/trinity-large-thinking:free"
+            />
+          </label>
+          <label className="span-two">
+            <span>OpenRouter API key</span>
+            <input
+              type="password"
+              value={settingsDraft.openRouterApiKey}
+              onChange={(event) =>
+                setSettingsDraft((current) => ({ ...current, openRouterApiKey: event.target.value }))
+              }
+              placeholder="Usada apenas para enviar transcricoes ao OpenRouter"
+            />
+          </label>
+        </div>
+      </section>
+    </div>
+  );
+
   const renderVideoSettings = () => (
     <div className="settings-view">
       <section className="settings-section">
@@ -1423,11 +1596,41 @@ function App() {
     );
   };
 
+  const renderContentModal = () => {
+    if (!selectedMeeting || !activeContentModal) return null;
+    const isTranscript = activeContentModal === "transcript";
+    const content = isTranscript ? selectedMeeting.transcript : selectedMeeting.summary;
+    if (!content) return null;
+    const title = isTranscript ? "Transcricao" : "Resumo";
+    const Icon = isTranscript ? Bot : Cloud;
+
+    return (
+      <div className="content-modal-backdrop" onMouseDown={() => setActiveContentModal(null)}>
+        <section className="content-modal" onMouseDown={(event) => event.stopPropagation()}>
+          <header className="content-modal-header">
+            <div>
+              <span><Icon size={15} /> {title}</span>
+              <h2>{selectedMeeting.title}</h2>
+              <em>{formatTextStats(content)}</em>
+            </div>
+            <button className="icon-button" onClick={() => setActiveContentModal(null)} title="Fechar">
+              <X size={16} />
+            </button>
+          </header>
+          <div className={isTranscript ? "content-modal-text transcript-text" : "content-modal-text summary-text"}>
+            {content}
+          </div>
+        </section>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     if (view === "dashboard") return renderDashboard();
     if (view === "library") return renderLibrary();
     if (view === "taxonomy") return renderTaxonomy();
     if (view === "settings") return renderSettings();
+    if (view === "summary") return renderSummarySettings();
     if (view === "video") return renderVideoSettings();
     return renderIntegrations();
   };
@@ -1510,6 +1713,7 @@ function App() {
           {renderContent()}
         </section>
       </main>
+      {renderContentModal()}
     </div>
   );
 }

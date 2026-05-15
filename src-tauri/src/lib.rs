@@ -1,7 +1,7 @@
 use chrono::Utc;
 use reqwest::multipart;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -31,6 +31,8 @@ struct Meeting {
     recording_path: String,
     mime_type: String,
     transcript: String,
+    #[serde(default)]
+    summary: String,
     status: String,
     #[serde(default)]
     progress_message: String,
@@ -55,6 +57,12 @@ struct Settings {
     #[serde(default = "default_processing_mode")]
     processing_mode: String,
     transcription_model: String,
+    #[serde(default = "default_summary_mode")]
+    summary_mode: String,
+    #[serde(default)]
+    open_router_api_key: String,
+    #[serde(default = "default_open_router_model")]
+    open_router_model: String,
     language: String,
     #[serde(default = "default_ffmpeg_path")]
     ffmpeg_path: String,
@@ -88,6 +96,9 @@ impl Default for Settings {
             api_key: String::new(),
             processing_mode: default_processing_mode(),
             transcription_model: "gpt-4o-mini-transcribe".into(),
+            summary_mode: default_summary_mode(),
+            open_router_api_key: String::new(),
+            open_router_model: default_open_router_model(),
             language: "pt".into(),
             ffmpeg_path: default_ffmpeg_path(),
             whisper_cli_path: default_whisper_cli_path(),
@@ -107,6 +118,14 @@ impl Default for Settings {
 
 fn default_processing_mode() -> String {
     "local".into()
+}
+
+fn default_summary_mode() -> String {
+    "disabled".into()
+}
+
+fn default_open_router_model() -> String {
+    "arcee-ai/trinity-large-thinking:free".into()
 }
 
 fn default_ffmpeg_path() -> String {
@@ -227,6 +246,7 @@ fn save_recording(
         recording_path: recording_path.to_string_lossy().to_string(),
         mime_type: input.mime_type,
         transcript: String::new(),
+        summary: String::new(),
         status: "recorded".into(),
         progress_message: String::new(),
         progress_percent: 0,
@@ -381,6 +401,69 @@ async fn transcribe_meeting(
     let meeting = updated.clone();
     persist_store(&app, &store)?;
     emit_processing_progress(&app, &meeting.id, "Transcricao concluida", 100, "completed");
+    Ok(meeting)
+}
+
+#[tauri::command]
+async fn summarize_meeting(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Meeting, String> {
+    let (meeting, settings) = {
+        let mut store = state.store.lock().map_err(|error| error.to_string())?;
+        let settings = store.settings.clone();
+        if settings.summary_mode != "openrouter" {
+            return Err("Ative o resumo com OpenRouter nas configuracoes.".to_string());
+        }
+        if settings.open_router_api_key.trim().is_empty() {
+            return Err("Configure a chave do OpenRouter antes de resumir.".to_string());
+        }
+
+        let meeting = store
+            .meetings
+            .iter_mut()
+            .find(|meeting| meeting.id == id)
+            .ok_or_else(|| "Reuniao nao encontrada.".to_string())?;
+
+        if meeting.transcript.trim().is_empty() {
+            return Err("Transcreva a reuniao antes de gerar um resumo.".to_string());
+        }
+
+        meeting.status = "processing".into();
+        meeting.progress_message = "Preparando resumo".into();
+        meeting.progress_percent = 2;
+        meeting.error.clear();
+        let meeting_clone = meeting.clone();
+        persist_store(&app, &store)?;
+        (meeting_clone, settings)
+    };
+
+    update_meeting_progress(&app, &state, &id, "Preparando resumo", 2, "processing")?;
+
+    let result = summarize_transcript_openrouter(&app, &state, &meeting, &settings).await;
+    let summary = match result {
+        Ok(summary) => summary,
+        Err(error) => {
+            mark_meeting_error(&app, &state, &id, &error)?;
+            return Err(error);
+        }
+    };
+
+    let mut store = state.store.lock().map_err(|error| error.to_string())?;
+    let updated = store
+        .meetings
+        .iter_mut()
+        .find(|meeting| meeting.id == id)
+        .ok_or_else(|| "Reuniao nao encontrada.".to_string())?;
+    updated.summary = summary;
+    updated.status = "completed".into();
+    updated.progress_message = "Resumo concluido".into();
+    updated.progress_percent = 100;
+    updated.error.clear();
+    let meeting = updated.clone();
+    persist_store(&app, &store)?;
+    emit_processing_progress(&app, &meeting.id, "Resumo concluido", 100, "completed");
     Ok(meeting)
 }
 
@@ -576,6 +659,175 @@ async fn transcribe_recording(meeting: &Meeting, settings: &Settings) -> Result<
         .map(str::to_string)
         .filter(|text| !text.trim().is_empty())
         .ok_or_else(|| "A transcricao retornou vazia.".to_string())
+}
+
+async fn summarize_transcript_openrouter(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    meeting: &Meeting,
+    settings: &Settings,
+) -> Result<String, String> {
+    if settings.summary_mode != "openrouter" {
+        return Err("Ative o resumo com OpenRouter nas configuracoes.".to_string());
+    }
+    if settings.open_router_api_key.trim().is_empty() {
+        return Err("Configure a chave do OpenRouter antes de resumir.".to_string());
+    }
+
+    let model = {
+        let configured = settings.open_router_model.trim();
+        if configured.is_empty() {
+            default_open_router_model()
+        } else {
+            configured.to_string()
+        }
+    };
+
+    let chunks = split_text_chunks(&meeting.transcript, 24_000);
+    if chunks.is_empty() {
+        return Err("A transcricao esta vazia.".to_string());
+    }
+
+    update_meeting_progress(
+        app,
+        state,
+        &meeting.id,
+        "Enviando transcricao ao OpenRouter",
+        15,
+        "processing",
+    )?;
+
+    if chunks.len() == 1 {
+        let summary =
+            request_openrouter_summary(settings, &model, &meeting.title, &chunks[0], false).await?;
+        return Ok(summary);
+    }
+
+    let mut partial_summaries = Vec::with_capacity(chunks.len());
+    for (index, chunk) in chunks.iter().enumerate() {
+        let percent = 15 + (((index + 1) * 55) / chunks.len()) as u8;
+        update_meeting_progress(
+            app,
+            state,
+            &meeting.id,
+            &format!("Resumindo parte {} de {}", index + 1, chunks.len()),
+            percent,
+            "processing",
+        )?;
+        let partial =
+            request_openrouter_summary(settings, &model, &meeting.title, chunk, true).await?;
+        partial_summaries.push(partial);
+    }
+
+    update_meeting_progress(
+        app,
+        state,
+        &meeting.id,
+        "Consolidando resumo",
+        82,
+        "processing",
+    )?;
+    let combined = partial_summaries.join("\n\n---\n\n");
+    request_openrouter_summary(settings, &model, &meeting.title, &combined, false).await
+}
+
+async fn request_openrouter_summary(
+    settings: &Settings,
+    model: &str,
+    title: &str,
+    transcript: &str,
+    partial: bool,
+) -> Result<String, String> {
+    let scope = if partial {
+        "Gere um resumo parcial deste trecho de transcricao."
+    } else {
+        "Gere um resumo final desta transcricao de reuniao."
+    };
+    let prompt = format!(
+        "{scope}\n\nTitulo da reuniao: {title}\n\nRetorne em Markdown conciso, em portugues, com estas secoes:\n- Resumo executivo\n- Pontos-chave\n- Decisoes\n- Proximos passos\n\nTranscricao:\n{transcript}"
+    );
+
+    let request = json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "Voce resume reunioes corporativas com foco em clareza, decisoes, riscos e proximas acoes. Nao invente informacoes ausentes."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.2,
+        "max_tokens": if partial { 900 } else { 1400 }
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .bearer_auth(settings.open_router_api_key.trim())
+        .header("HTTP-Referer", "https://meeting-vault.local")
+        .header("X-OpenRouter-Title", "Meeting Vault")
+        .json(&request)
+        .send()
+        .await
+        .map_err(|error| format!("Falha ao chamar OpenRouter: {error}"))?;
+
+    let status = response.status();
+    let text = response.text().await.map_err(|error| error.to_string())?;
+    let body: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
+    if !status.is_success() {
+        return Err(api_error_message(body, "Falha ao gerar resumo no OpenRouter."));
+    }
+
+    body.pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "O OpenRouter retornou um resumo vazio.".to_string())
+}
+
+fn split_text_chunks(text: &str, max_chars: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+
+    for paragraph in text.split("\n\n") {
+        let paragraph = paragraph.trim();
+        if paragraph.is_empty() {
+            continue;
+        }
+
+        if current.len() + paragraph.len() + 2 > max_chars && !current.is_empty() {
+            chunks.push(current.trim().to_string());
+            current.clear();
+        }
+
+        if paragraph.len() > max_chars {
+            for sentence in paragraph.split_terminator(['.', '!', '?']) {
+                let sentence = sentence.trim();
+                if sentence.is_empty() {
+                    continue;
+                }
+                if current.len() + sentence.len() + 2 > max_chars && !current.is_empty() {
+                    chunks.push(current.trim().to_string());
+                    current.clear();
+                }
+                current.push_str(sentence);
+                current.push_str(". ");
+            }
+        } else {
+            current.push_str(paragraph);
+            current.push_str("\n\n");
+        }
+    }
+
+    if !current.trim().is_empty() {
+        chunks.push(current.trim().to_string());
+    }
+
+    chunks
 }
 
 fn api_error_message(body: Value, fallback: &str) -> String {
@@ -862,6 +1114,7 @@ pub fn run() {
             open_recording,
             reveal_recording,
             transcribe_meeting,
+            summarize_meeting,
             minimize_window,
             toggle_maximize_window,
             hide_window,
