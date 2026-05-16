@@ -19,19 +19,26 @@ Meeting Vault deve parecer uma ferramenta profissional de operacao, nao um MVP s
 
 ## Funcionalidades atuais
 
-- Gravar tela e audio.
+- Gravar tela e audio (chunks streamados diretamente ao disco via IPC — sem acumulo em memoria, suporta gravacoes longas).
 - Salvar video compactado localmente.
 - Editar titulo da reuniao, categoria e tags.
 - Busca por titulo, tags e transcricao.
 - Transcricao local com Whisper ou via API.
 - Tray do Windows.
 - Progresso visivel durante transcricao.
+- Publicar gravacao no YouTube com titulo, descricao e visibilidade — via OAuth 2.0 e YouTube Data API v3. Link do video salvo na reuniao.
+- Apagar arquivo local apos publicacao no YouTube (opcional, confirmacao em modal).
+
+## Integracoes
+
+- **YouTube** — implementada: OAuth 2.0, upload via Resumable Upload API, link salvo no Meeting. Usuario configura Client ID e Client Secret em Integracoes → YouTube → Configurar.
+- **Notion** — planejada: card visivel na tela de Integracoes, sem implementacao.
 
 ## Funcionalidades diferidas
 
 - Resumo executivo com acoes e decisoes — disponivel apenas via OpenRouter opt-in, em tela separada de resumo; llama.cpp continua removido, ver [[../docs/adr/0005-remove-summarization|ADR 0005]] e [[../docs/adr/0006-openrouter-summary|ADR 0006]].
 - Identificacao de participantes e diarizacao.
-- Integracoes reais com calendario, Notion e CRM.
+- Integracoes reais com calendario e CRM.
 
 ## Referencias competitivas
 

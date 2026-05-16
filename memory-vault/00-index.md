@@ -21,14 +21,18 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - [ADR 0004](../docs/adr/0004-frameless-professional-dark-ui.md)
 - [ADR 0005](../docs/adr/0005-remove-summarization.md)
 - [ADR 0006](../docs/adr/0006-openrouter-summary.md)
+- [ADR 0007](../docs/adr/0007-recording-streaming-to-disk.md)
+- [ADR 0008](../docs/adr/0008-youtube-oauth-integration.md)
 
 ## Estado rapido
 
 - App desktop Windows com Tauri 2.
 - UI React/TypeScript.
 - Persistencia local em JSON.
-- Gravacao via WebView2 `MediaRecorder`.
+- Gravacao via WebView2 `MediaRecorder` — chunks streamados diretamente ao disco via IPC (sem acumulo em memoria).
 - Processamento local com FFmpeg e whisper.cpp.
 - Sumarizacao com llama.cpp removida — ver ADR 0005.
 - Resumo de transcricoes reintroduzido somente como opcao OpenRouter sob demanda — ver ADR 0006.
 - Modo API/hibrido existe para transcricao, mas o produto deve continuar local-first.
+- Integracao YouTube implementada: OAuth 2.0, upload via Resumable Upload API, armazenamento do link no Meeting.
+- Integracao Notion planejada (card visivel na tela de Integracoes, sem implementacao).

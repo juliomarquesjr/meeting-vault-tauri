@@ -8,6 +8,8 @@
 - [[../docs/adr/0004-frameless-professional-dark-ui|ADR 0004]]: UI profissional dark mode com janela sem decoracao nativa.
 - [[../docs/adr/0005-remove-summarization|ADR 0005]]: remover sumarizacao com LLM desta fase (2026-05-14).
 - [[../docs/adr/0006-openrouter-summary|ADR 0006]]: reintroduzir resumo somente via OpenRouter opt-in (2026-05-15).
+- [[../docs/adr/0007-recording-streaming-to-disk|ADR 0007]]: gravar chunks diretamente ao disco via IPC streaming para suportar sessoes longas (2026-05-15).
+- [[../docs/adr/0008-youtube-oauth-integration|ADR 0008]]: integracao YouTube via OAuth 2.0 Installed App + Resumable Upload API (2026-05-15).
 - Bootstrap local: `tools/` e `models/` ficam fora do Git; `scripts/bootstrap-local-ai.ps1` baixa FFmpeg, whisper.cpp e modelo Whisper para uma maquina nova.
 
 ## Decisoes pendentes
@@ -16,4 +18,5 @@
 - Modelo Whisper local padrao recomendado para CPU modesto.
 - Migracao para SQLite.
 - Exportacao Markdown/Obsidian de reunioes transcritas.
-- Integracoes reais: calendario, Notion, CRM e chat.
+- Integracao Notion (card planejado, sem implementacao).
+- Integracoes com calendario e CRM.

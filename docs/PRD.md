@@ -2,9 +2,9 @@
 
 ## 1. Visao geral
 
-Meeting Vault e um aplicativo desktop local-first para Windows, focado em gravar reunioes, preservar o video compactado, transcrever o audio localmente e, quando o usuario optar, gerar resumos de transcricoes via OpenRouter. O produto prioriza controle local dos dados, operacao por tray do sistema e uma biblioteca pesquisavel para consulta posterior.
+Meeting Vault e um aplicativo desktop local-first para Windows, focado em gravar reunioes, preservar o video compactado, transcrever o audio localmente e, quando o usuario optar, gerar resumos de transcricoes via OpenRouter ou publicar gravacoes no YouTube. O produto prioriza controle local dos dados, operacao por tray do sistema e uma biblioteca pesquisavel para consulta posterior.
 
-O app atual usa Tauri 2, React, TypeScript e Rust. A captura de tela ocorre no WebView2 via `MediaRecorder`; a persistencia e local em JSON; o processamento local usa FFmpeg e whisper.cpp. Tambem existe caminho opcional por API para transcricao.
+O app atual usa Tauri 2, React, TypeScript e Rust. A captura de tela ocorre no WebView2 via `MediaRecorder`; chunks sao streamados diretamente ao disco via IPC (sem acumulo em memoria); a persistencia e local em JSON; o processamento local usa FFmpeg e whisper.cpp. Tambem existe caminho opcional por API para transcricao.
 
 ## 2. Problema
 
@@ -32,10 +32,9 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 - Sumarizacao obrigatoria ou sem consentimento explicito do usuario.
 - Sincronizacao multiusuario.
 - Backend remoto.
-- Compartilhamento publico de videos.
 - Diarizacao precisa de falantes.
 - Captura nativa de dispositivos e mixers complexos como OBS.
-- Integracoes reais com calendario, CRM, Slack, Teams ou Notion.
+- Integracoes reais com calendario, CRM, Slack, Teams ou Notion (Notion tem card planejado; integracao real e fase seguinte).
 - Banco SQLite completo, embora esteja previsto como evolucao.
 
 ## 6. Funcionalidades atuais
@@ -58,8 +57,9 @@ Todas as zonas usam `align-items: stretch` para garantir altura uniforme entre p
 - Tags adicionadas como badges removiveis (Enter ou virgula confirma cada tag).
 - Configuracao de resolucao maxima, FPS, bitrates e captura de audio do sistema quando disponivel.
 - Indicador de status inline no cabecalho do painel (resolucao, FPS e tempo gravando).
+- Chunks de video streamados diretamente ao disco via IPC a cada segundo (sem acumulo em memoria), suportando gravacoes longas (20+ minutos).
+- Ao finalizar, `finalize_recording_session` renomeia o arquivo `.tmp` para `.webm` e cria a entrada na biblioteca.
 - Ao finalizar uma gravacao, a UI exibe estado de finalizacao com etapas e barra de progresso estimada ate o video ser salvo e a biblioteca liberada.
-- Salvamento local por comando Tauri `save_recording`.
 - Abertura e revelacao do arquivo gravado pelo sistema operacional.
 
 ### 6.3 Biblioteca
@@ -111,7 +111,25 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 - O usuario configura a chave OpenRouter e o ID do modelo, permitindo testar modelos free trocando apenas o `model`.
 - A transcricao e enviada ao OpenRouter somente quando o usuario aciona o resumo e o modo OpenRouter esta configurado.
 
-### 6.8 Tray e janela
+### 6.8 Integracoes
+
+#### YouTube
+
+- Publicar gravacoes no YouTube diretamente pelo app.
+- Usuario configura Client ID e Client Secret obtidos no Google Cloud Console (YouTube Data API v3, credencial OAuth "App de desktop").
+- Fluxo OAuth 2.0 Installed App: abre browser para consent, captura callback na porta 8765, salva tokens localmente.
+- Modal de upload permite definir titulo (pre-preenchido com titulo da reuniao), descricao, privacidade (`privado`, `nao listado`, `publico`) e opcao de apagar arquivo local apos publicacao.
+- Link do video YouTube salvo na reuniao e exibido nos metadados do detalhe da biblioteca.
+- Upload via YouTube Resumable Upload API em chunks de 8 MB (sem carregar arquivo inteiro em memoria).
+- Progresso do upload exibido na barra de processamento da reuniao.
+- Botao "Apagar arquivo local" disponivel quando reuniao ja publicada mas arquivo ainda existe, com confirmacao em modal.
+- Integracao configuravel em Integracoes → YouTube → Configurar.
+
+#### Notion (planejado)
+
+- Card visivel na tela de Integracoes, sem implementacao nesta fase.
+
+### 6.9 Tray e janela
 
 - Tray nativo com abrir biblioteca, iniciar gravacao, finalizar gravacao e sair.
 - Janela sem decoracao nativa do Windows.
@@ -135,7 +153,8 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 | RF-011 | O usuario deve configurar caminhos de ferramentas e modelos locais. | Implementado |
 | RF-012 | O app deve suportar fallback por API quando configurado. | Implementado |
 | RF-013 | O app deve gerar resumo estruturado de transcricoes via OpenRouter quando configurado. | Implementado |
-| RF-014 | O app deve permitir integracoes externas no futuro. | Planejado |
+| RF-014 | O app deve permitir publicar gravacoes no YouTube. | Implementado |
+| RF-014b | O app deve permitir integracoes externas adicionais no futuro (Notion, calendario). | Planejado |
 | RF-015 | O app deve migrar persistencia para SQLite quando a biblioteca crescer. | Planejado |
 
 ## 8. Requisitos nao funcionais
@@ -159,7 +178,7 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 - `tags`: lista normalizada de tags.
 - `durationSeconds`: duracao.
 - `sizeBytes`: tamanho do arquivo.
-- `recordingPath`: caminho local do video.
+- `recordingPath`: caminho local do video (vazio quando arquivo apagado apos upload YouTube).
 - `mimeType`: MIME original do blob gravado.
 - `transcript`: texto transcrito.
 - `summary`: resumo da transcricao gerado via OpenRouter.
@@ -167,22 +186,23 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 - `progressMessage`: etapa atual.
 - `progressPercent`: percentual exibido.
 - `error`: ultimo erro.
+- `youtubeVideoId`: ID do video publicado no YouTube (vazio = nao publicado).
+- `youtubeUrl`: URL publica do video YouTube (vazio = nao publicado).
 
 ### Settings
 
-Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video, automacao de transcricao e configuracao de resumo (`disabled` ou `openrouter`, chave OpenRouter e modelo OpenRouter).
+Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video, automacao de transcricao, configuracao de resumo (`disabled` ou `openrouter`, chave OpenRouter e modelo OpenRouter), e credenciais YouTube (`youtubeClientId`, `youtubeClientSecret`).
 
 ## 10. Fluxos principais
 
 ### Gravacao
 
 1. Usuario preenche titulo, categoria e tags.
-2. UI chama `getDisplayMedia`.
-3. `MediaRecorder` captura chunks de video.
-4. Ao parar, o blob vira bytes.
-5. UI exibe finalizacao da gravacao com etapas: encerrar captura, montar arquivo, converter bytes, salvar no cofre e atualizar biblioteca.
-6. Frontend chama `save_recording`.
-7. Backend salva arquivo em `recordings/` e atualiza `store.json`.
+2. UI chama `getDisplayMedia` e `begin_recording_session`.
+3. `MediaRecorder` captura chunks de video; cada chunk e enviado a `append_recording_chunk` para ser gravado diretamente ao arquivo `.tmp` em disco.
+4. Ao parar, UI aguarda a fila de chunks ser processada e chama `finalize_recording_session`.
+5. Backend renomeia `.tmp` para `.webm`, cria `Meeting` e atualiza `store.json`.
+6. UI exibe estado de finalizacao com etapas e barra de progresso estimada.
 
 ### Processamento local
 

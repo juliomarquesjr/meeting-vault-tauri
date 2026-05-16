@@ -16,11 +16,13 @@ O pipeline de IA atual e apenas transcricao (FFmpeg + Whisper). O resumo com LLM
 
 ## Areas sensiveis
 
-- `src-tauri/src/lib.rs`: persistencia e execucao de processos externos.
+- `src-tauri/src/lib.rs`: persistencia e execucao de processos externos. Inclui pipeline OAuth (porta 8765, tokens YouTube) e upload em chunks.
 - `src/App.tsx`: estado amplo em um unico componente. Priorize reduzir crescimento extraindo componentes React quando houver novo fluxo visual ou JSX extenso.
 - `src/components/`: componentes globais/reutilizaveis. Novos componentes devem ter props explicitas, tipos TypeScript e nao devem chamar Tauri diretamente quando o container puder receber callbacks.
+  - **Excecao:** `IntegrationsView` chama `invoke` diretamente — esse e o padrao aprovado para esse componente especificamente, pois seu estado de credenciais e local e o fluxo OAuth e atomico.
 - `src/styles.css`: sistema visual compartilhado.
 - Configuracoes locais do usuario em `%APPDATA%`.
+- `store.json` contem `youtubeTokens` (access_token + refresh_token). Nunca versionado; nunca logado.
 
 ## Diretriz React para proximos agentes
 

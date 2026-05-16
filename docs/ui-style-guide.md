@@ -205,7 +205,7 @@ O tipo de documentacao que descreve o posicionamento dos elementos em uma tela e
 │ │ 9 transcritas│ │ media 23m/r  │ │ 75% do total │ │ fila vazia│ │
 │ └──────────────┘ └──────────────┘ └──────────────┘ └──────────┘ │
 ├──────────────────────────────────────────────────────────────────┤
-│ ZONA 2 — MAIN ROW (.dash-main-row, grid 1.1fr | 0.9fr)          │
+│ ZONA 2 — MAIN ROW (.dash-main-row, grid 1fr | 1fr)              │
 │ ┌────────────────────────────────┐ ┌────────────────────────────┐│
 │ │ Nova gravacao  [● 1080p] [Qual]│ │ Reunioes recentes [Ver todas││
 │ │ Titulo      | Categoria        │ │ ● Reuniao Semanal     7:28 ││
@@ -233,7 +233,7 @@ O tipo de documentacao que descreve o posicionamento dos elementos em uma tela e
 | `.kpi-tile` | Tile individual: `flex row` com icone + body |
 | `.kpi-icon` | Box 40x40px com cor semantica de fundo |
 | `.kpi-body` | Grid de 3 linhas: label / valor / contexto |
-| `.dash-main-row` | Grid 1.1fr / 0.9fr, `align-items: stretch` |
+| `.dash-main-row` | Grid 1fr / 1fr, `align-items: stretch` |
 | `.dash-footer-row` | Grid 1fr / 1fr, `align-items: stretch` |
 | `.dashboard-frame` | Flex coluna, painel principal de cada zona |
 | `.recent-frame` | Extende `dashboard-frame` com lista com scroll |
@@ -331,6 +331,43 @@ O detalhe da biblioteca inclui card de resumo ao lado do card de transcricao:
 
 - `Transcricao`: concentra Whisper, FFmpeg, modo local/API/hibrido, idioma, OpenAI API key e transcricao automatica.
 - `Resumo`: tela separada para `Desativado` ou `OpenRouter`, chave OpenRouter e ID do modelo. Nao deve conter controles de Whisper ou transcricao.
+
+---
+
+## 9.1 Tela de Integracoes
+
+Componente: `src/components/IntegrationsView.tsx`.
+
+```
+.integrations-page           ← flex coluna, gap 12px
+  .integrations-view         ← grid de cards (repeat auto-fill, minmax 260px)
+    .integration-card        ← card de integracao
+    .integration-card--active  ← variante: borda roxa quando expanded
+  .settings-section          ← painel de configuracao expandido (abaixo do grid)
+```
+
+Cards de integracao:
+- YouTube (real): mostra status "Conectado" / "Desconectado"; botao "Configurar" expande painel abaixo do grid.
+- Notion (planejado): botao "Configurar" desabilitado.
+
+Painel expandido YouTube (`.settings-section`):
+- Cabecalho `.panel-heading` com titulo "Credenciais do Google" e botao Salvar.
+- Grid `.settings-grid` com campos Client ID e Client Secret (ambos `.span-two`).
+- Botao "Conectar com Google" (`.primary-button`) ou "Desconectar conta" (`.secondary-button.danger`) dependendo do status.
+
+### Modal de Upload YouTube
+
+Componente: `src/components/YoutubeUploadDialog.tsx`.
+
+Reutiliza CSS do `ConfirmDialog` (`.confirm-dialog-backdrop`, `.confirm-dialog`).
+
+Campos:
+- Input "Titulo" — pre-preenchido com `meeting.title`.
+- Textarea "Descricao" — vazia por padrao.
+- Select "Privacidade" — `privado` / `nao listado` / `publico`; default: `nao listado`.
+- Checkbox "Apagar arquivo local apos publicacao".
+
+Botoes: "Publicar" (`.primary-button`) e "Cancelar" (`.secondary-button`).
 
 ---
 
