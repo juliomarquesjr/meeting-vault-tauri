@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
@@ -257,6 +258,88 @@ fn save_recording(
     store.meetings.push(meeting.clone());
     persist_store(&app, &store)?;
     Ok(meeting)
+}
+
+#[tauri::command]
+fn begin_recording_session(app: AppHandle) -> Result<String, String> {
+    let session_id = Uuid::new_v4().to_string();
+    let temp_path = recordings_dir(&app)?.join(format!("{session_id}.tmp"));
+    fs::File::create(&temp_path).map_err(|e| e.to_string())?;
+    Ok(session_id)
+}
+
+#[tauri::command]
+fn append_recording_chunk(app: AppHandle, session_id: String, bytes: Vec<u8>) -> Result<(), String> {
+    let temp_path = recordings_dir(&app)?.join(format!("{session_id}.tmp"));
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(&temp_path)
+        .map_err(|e| e.to_string())?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FinalizeRecordingInput {
+    session_id: String,
+    title: String,
+    #[serde(default)]
+    category: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    started_at: String,
+    duration_seconds: f64,
+    mime_type: String,
+    #[serde(default = "default_video_file_extension")]
+    file_extension: String,
+}
+
+#[tauri::command]
+fn finalize_recording_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: FinalizeRecordingInput,
+) -> Result<Meeting, String> {
+    let recordings_dir = recordings_dir(&app)?;
+    let temp_path = recordings_dir.join(format!("{}.tmp", input.session_id));
+    let extension = normalize_extension(&input.file_extension);
+    let final_path = recordings_dir.join(format!("{}.{extension}", input.session_id));
+    fs::rename(&temp_path, &final_path).map_err(|e| e.to_string())?;
+    let size_bytes = fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
+
+    let meeting = Meeting {
+        id: input.session_id,
+        title: input.title.trim().to_string(),
+        created_at: Utc::now().to_rfc3339(),
+        started_at: input.started_at,
+        category: input.category.trim().to_string(),
+        tags: normalize_tags(input.tags),
+        duration_seconds: input.duration_seconds,
+        size_bytes,
+        recording_path: final_path.to_string_lossy().to_string(),
+        mime_type: input.mime_type,
+        transcript: String::new(),
+        summary: String::new(),
+        status: "recorded".into(),
+        progress_message: String::new(),
+        progress_percent: 0,
+        error: String::new(),
+    };
+
+    let mut store = state.store.lock().map_err(|e| e.to_string())?;
+    store.meetings.push(meeting.clone());
+    persist_store(&app, &store)?;
+    Ok(meeting)
+}
+
+#[tauri::command]
+fn cancel_recording_session(app: AppHandle, session_id: String) -> Result<(), String> {
+    let temp_path = recordings_dir(&app)?.join(format!("{session_id}.tmp"));
+    if temp_path.exists() {
+        fs::remove_file(&temp_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1108,6 +1191,10 @@ pub fn run() {
             get_settings,
             save_settings,
             save_recording,
+            begin_recording_session,
+            append_recording_chunk,
+            finalize_recording_session,
+            cancel_recording_session,
             update_meeting_title,
             update_meeting_metadata,
             delete_meeting,

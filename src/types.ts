@@ -58,3 +58,14 @@ export interface SaveRecordingInput {
   fileExtension: string;
   bytes: number[];
 }
+
+export interface FinalizeRecordingInput {
+  sessionId: string;
+  title: string;
+  category: string;
+  tags: string[];
+  startedAt: string;
+  durationSeconds: number;
+  mimeType: string;
+  fileExtension: string;
+}

@@ -43,7 +43,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import type { Meeting, ProcessingProgress, SaveRecordingInput, Settings } from "./types";
+import type { FinalizeRecordingInput, Meeting, ProcessingProgress, Settings } from "./types";
 
 type View = "dashboard" | "library" | "taxonomy" | "settings" | "summary" | "video" | "integrations";
 type ContentModal = "transcript" | "summary" | null;
@@ -278,7 +278,8 @@ function App() {
   const [isDeletingMeeting, setIsDeletingMeeting] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
+  const sessionIdRef = useRef<string | null>(null);
+  const chunkQueueRef = useRef<Promise<void>>(Promise.resolve());
   const startedAtRef = useRef<Date | null>(null);
   const timerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -470,8 +471,19 @@ function App() {
     });
 
     streamRef.current = stream;
-    chunksRef.current = [];
     startedAtRef.current = new Date();
+    chunkQueueRef.current = Promise.resolve();
+
+    let sessionId: string;
+    try {
+      sessionId = await invoke<string>("begin_recording_session");
+    } catch (error) {
+      stream.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setNotice(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    sessionIdRef.current = sessionId;
 
     const recorder = new MediaRecorder(stream, recorderOptions(settings));
     recorderRef.current = recorder;
@@ -479,13 +491,20 @@ function App() {
     stream.getVideoTracks()[0]?.addEventListener("ended", () => stopRecording(), { once: true });
 
     recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
+      if (event.data.size > 0 && sessionIdRef.current) {
+        const sid = sessionIdRef.current;
+        const blob = event.data;
+        chunkQueueRef.current = chunkQueueRef.current.then(async () => {
+          const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+          await invoke("append_recording_chunk", { sessionId: sid, bytes });
+        });
+      }
     };
 
     recorder.onstop = async () => {
       setRecordingFinalization({
         active: true,
-        message: "Preparando arquivo de video",
+        message: "Aguardando gravacao ser escrita no disco",
         percent: 18
       });
       await waitForUiPaint();
@@ -500,39 +519,31 @@ function App() {
 
       const startedAt = startedAtRef.current ?? new Date();
       const durationSeconds = Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 1000));
-      setRecordingFinalization({
-        active: true,
-        message: "Montando gravacao local",
-        percent: 34
-      });
-      await waitForUiPaint();
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+      const mimeType = recorder.mimeType || "video/webm";
+      const sid = sessionIdRef.current;
 
       try {
+        await chunkQueueRef.current;
+
         setRecordingFinalization({
           active: true,
-          message: "Convertendo gravacao para salvamento",
-          percent: 48
+          message: "Salvando video no cofre local",
+          percent: 60
         });
         await waitForUiPaint();
-        const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
-        const input: SaveRecordingInput = {
+
+        const input: FinalizeRecordingInput = {
+          sessionId: sid!,
           title: recordingTitle.trim() || defaultMeetingTitle(),
           category: recordingCategory,
           tags: parseTags(recordingTags),
           startedAt: startedAt.toISOString(),
           durationSeconds,
-          mimeType: blob.type || "video/webm",
-          fileExtension: settings.videoFileExtension,
-          bytes
+          mimeType,
+          fileExtension: settings.videoFileExtension
         };
-        setRecordingFinalization({
-          active: true,
-          message: "Salvando video no cofre local",
-          percent: 72
-        });
-        await waitForUiPaint();
-        const saved = await invoke<Meeting>("save_recording", { input });
+        const saved = await invoke<Meeting>("finalize_recording_session", { input });
+
         setRecordingFinalization({
           active: true,
           message: "Atualizando biblioteca",
@@ -551,10 +562,11 @@ function App() {
           void transcribeMeeting(saved);
         }
       } catch (error) {
+        if (sid) void invoke("cancel_recording_session", { sessionId: sid }).catch(() => {});
         setNotice(error instanceof Error ? error.message : String(error));
       } finally {
         recorderRef.current = null;
-        chunksRef.current = [];
+        sessionIdRef.current = null;
         startedAtRef.current = null;
         setElapsed(0);
         setIsRecording(false);
