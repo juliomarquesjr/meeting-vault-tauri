@@ -23,6 +23,8 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - [ADR 0006](../docs/adr/0006-openrouter-summary.md)
 - [ADR 0007](../docs/adr/0007-recording-streaming-to-disk.md)
 - [ADR 0008](../docs/adr/0008-youtube-oauth-integration.md)
+- [ADR 0009](../docs/adr/0009-google-meet-detection.md)
+- [ADR 0010](../docs/adr/0010-microphone-capture-mix.md)
 
 ## Estado rapido
 
@@ -36,3 +38,5 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - Modo API/hibrido existe para transcricao, mas o produto deve continuar local-first.
 - Integracao YouTube implementada: OAuth 2.0, upload via Resumable Upload API, armazenamento do link no Meeting.
 - Integracao Notion planejada (card visivel na tela de Integracoes, sem implementacao).
+- Deteccao automatica de Google Meet implementada: polling Win32 a cada 3s, popup always-on-top, pre-preenche titulo da gravacao.
+- Captura de microfone implementada: getUserMedia + AudioContext mixagem com audio do sistema.

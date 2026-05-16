@@ -20,6 +20,8 @@ Meeting Vault deve parecer uma ferramenta profissional de operacao, nao um MVP s
 ## Funcionalidades atuais
 
 - Gravar tela e audio (chunks streamados diretamente ao disco via IPC — sem acumulo em memoria, suporta gravacoes longas).
+- Capturar audio do microfone em paralelo ao audio do sistema, com mixagem via AudioContext. Configuravel nas settings; fallback silencioso se permissao negada.
+- Detectar automaticamente reunioes Google Meet abertas no Chrome via polling de titulo de janela Win32 (a cada 3s). Exibe popup flutuante always-on-top no canto inferior direito com countdown de 15s, pre-preenchendo o titulo da gravacao. Desativavel nas settings.
 - Salvar video compactado localmente.
 - Editar titulo da reuniao, categoria e tags.
 - Busca por titulo, tags e transcricao.

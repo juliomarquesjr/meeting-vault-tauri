@@ -28,6 +28,9 @@ flowchart LR
   Commands --> YouTube["YouTube Data API v3"]
   Commands --> Events["processing-progress"]
   Events --> UI
+  Watcher["Meet Watcher (tokio)"] --> WinAPI["Win32 EnumWindows"]
+  WinAPI -->|titulo detectado| Popup["Popup meet-prompt"]
+  Popup -->|accept| UI
 ```
 
 ## Frontend
@@ -39,6 +42,11 @@ Componentes globais:
 - `src/components/ConfirmDialog.tsx`: modal reutilizavel para confirmacoes destrutivas.
 - `src/components/IntegrationsView.tsx`: pagina de integracoes (YouTube configurado, Notion planejado). Autonomo — chama `invoke` diretamente para `save_settings`, `connect_youtube` e `disconnect_youtube` (excecao documentada: fluxo OAuth exige sequencia atomica local ao componente).
 - `src/components/YoutubeUploadDialog.tsx`: modal para publicar gravacao no YouTube (titulo, descricao, privacidade, opcao de apagar local).
+- `src/components/MeetDetectedPrompt.tsx`: prompt de deteccao de reuniao Google Meet. Exibido na janela popup separada (`meet-prompt`) com countdown de 15s, botoes "Iniciar gravacao" e "Ignorar", barra de progresso animada. Aceita prop `standalone` para modo popup (sem `position: fixed`).
+
+Raizes alternativas:
+
+- `src/MeetPromptApp.tsx`: componente raiz renderizado exclusivamente na janela popup `meet-prompt`. Detecta `?mode=meet-prompt&title=<encoded>` na URL, aplica `background: transparent` ao body e renderiza `MeetDetectedPrompt` em modo standalone.
 
 Diretriz de componentizacao:
 
@@ -54,8 +62,9 @@ Responsabilidades do `App.tsx`:
 - Gerenciar views: dashboard, biblioteca, categorias/tags, configuracoes, video/qualidade e integracoes.
 - Iniciar e parar gravacao via pipeline de streaming (begin/append/finalize).
 - Invocar comandos Tauri para persistencia, processamento e janela.
-- Escutar eventos de tray, progresso e `youtube-connected`.
+- Escutar eventos de tray, progresso, `youtube-connected` e `meet-start-recording`.
 - Renderizar player local com `convertFileSrc`.
+- Iniciar o meet watcher (`start_meet_watcher`) no startup.
 
 ## Backend Tauri
 
@@ -88,6 +97,12 @@ Comandos expostos:
 - `delete_local_recording` — apaga arquivo local, zera `recordingPath`
 - `open_url` — abre URL no browser padrao via `cmd /c start`
 
+**Google Meet detection:**
+- `start_meet_watcher` — inicia background task tokio que faz polling de titulo de janela Win32 a cada 3s; ao detectar Meet, cria janela popup `meet-prompt` always-on-top
+- `stop_meet_watcher` — desativa o polling
+- `accept_meet_prompt` — fecha popup, traz janela principal ao foco, emite `meet-start-recording` para o frontend pre-preencher titulo e iniciar gravacao
+- `dismiss_meet_prompt` — fecha popup sem acao
+
 **Janela:**
 - `minimize_window`
 - `toggle_maximize_window`
@@ -105,6 +120,17 @@ O backend carrega e salva um `Store` contendo:
 Todos os campos novos usam `#[serde(default)]` para compatibilidade retroativa com `store.json` existentes.
 
 O arquivo fica no diretorio de dados do app definido pelo Tauri. No Windows, isso normalmente aponta para `%APPDATA%\\com.julio.meetingvault\\store.json`.
+
+## Pipeline de captura de audio
+
+A gravacao mistura duas fontes de audio via Web Audio API:
+
+1. `getDisplayMedia` com `audio: settings.captureSystemAudio` — captura audio da tela/sistema quando a fonte permitir.
+2. `getUserMedia({ audio: true })` com `audio: settings.captureMicrophone` — captura o microfone do usuario.
+
+Se ambas as fontes estiverem ativas, um `AudioContext` cria um `MediaStreamDestination` ao qual as duas sao conectadas. O `MediaRecorder` recebe um `MediaStream` composto pelas faixas de video da tela e a faixa de audio mixada. Se a permissao do microfone for negada, a gravacao continua sem microfone (fallback silencioso).
+
+Refs mantidos: `micStreamRef` e `audioCtxRef` — limpos no `onstop`.
 
 ## Pipeline de gravacao (streaming)
 
@@ -233,3 +259,6 @@ A janela principal usa `decorations: false` em `src-tauri/tauri.conf.json`, com 
 - Dados antigos no `store.json` com `action_items` e `decisions` continuam ignorados silenciosamente. O campo `summary` voltou a ser ativo para resumos OpenRouter.
 - `youtube_tokens` no `store.json` contem tokens OAuth sensiveis — nunca logar, nunca versionar.
 - O OAuth listener na porta 8765 expira em 120s. Se o usuario fechar o browser sem autorizar, o fluxo expira graciosamente via `recv_timeout`.
+- Meet watcher usa `AtomicBool` para controle de ciclo de vida — garantia de que apenas uma instancia do watcher roda por vez.
+- A janela popup `meet-prompt` tem label proprio em `capabilities/default.json` — novas janelas Tauri precisam ser registradas la tambem.
+- Captura de microfone exige permissao do usuario no Chrome (solicitada na primeira gravacao). O `AudioContext` e fechado no `onstop` para evitar vazamento de recursos.

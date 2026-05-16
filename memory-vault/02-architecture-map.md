@@ -3,14 +3,16 @@
 ## Arquivos centrais
 
 - `src/App.tsx`: UI, estado, gravacao, comandos Tauri e eventos.
+- `src/MeetPromptApp.tsx`: raiz alternativa renderizada na janela popup `meet-prompt` (`?mode=meet-prompt`).
 - `src/components/ConfirmDialog.tsx`: componente global de confirmacao para acoes destrutivas.
 - `src/components/IntegrationsView.tsx`: pagina de integracoes — autonoma (chama `invoke` diretamente, excecao documentada).
 - `src/components/YoutubeUploadDialog.tsx`: modal de publicacao no YouTube (titulo, descricao, privacidade, apagar local).
+- `src/components/MeetDetectedPrompt.tsx`: prompt de deteccao de Meet com countdown 15s e barra de progresso animada.
 - `src/types.ts`: contratos TypeScript de `Meeting`, `Settings` e inputs.
 - `src/styles.css`: sistema visual dark mode.
 - `src-tauri/src/lib.rs`: comandos Tauri, persistencia, tray e pipelines.
 - `src-tauri/tauri.conf.json`: janela, bundle, dev server e protocolo de assets.
-- `src-tauri/capabilities/default.json`: permissoes Tauri.
+- `src-tauri/capabilities/default.json`: permissoes Tauri — inclui labels `main` e `meet-prompt`.
 
 ## Convencao de componentes React
 
@@ -26,12 +28,15 @@
 1. React carrega reunioes com `list_meetings`.
 2. React carrega configuracoes com `get_settings`.
 3. React verifica status YouTube com `get_youtube_connection_status` no startup.
-4. Gravacao inicia com `begin_recording_session`; chunks sao enviados com `append_recording_chunk` a cada segundo; `finalize_recording_session` fecha e renomeia o arquivo `.tmp`.
-5. Rust grava video em `recordings/` e metadados em `store.json`.
-6. Processamento atualiza `Meeting` e emite `processing-progress`.
-7. React reflete progresso e resultado.
-8. Resumo OpenRouter, quando acionado, usa a transcricao existente e salva `summary`.
-9. Upload YouTube: `upload_to_youtube` faz upload em chunks de 8 MB via Resumable Upload API, emite `processing-progress` e salva `youtubeUrl` na reuniao.
+4. React inicia `start_meet_watcher` no startup — background task tokio polls titulos Win32 a cada 3s.
+5. Quando Meet detectado: Rust cria janela popup `meet-prompt`; usuario aceita → `accept_meet_prompt` emite `meet-start-recording` para o frontend.
+6. Gravacao inicia com `getDisplayMedia` + `getUserMedia` (se habilitado); streams mixados via `AudioContext`; `begin_recording_session` abre arquivo `.tmp`.
+7. Chunks enviados com `append_recording_chunk` a cada segundo; `finalize_recording_session` fecha e renomeia o arquivo `.tmp`.
+8. Rust grava video em `recordings/` e metadados em `store.json`.
+9. Processamento atualiza `Meeting` e emite `processing-progress`.
+10. React reflete progresso e resultado.
+11. Resumo OpenRouter, quando acionado, usa a transcricao existente e salva `summary`.
+12. Upload YouTube: `upload_to_youtube` faz upload em chunks de 8 MB via Resumable Upload API, emite `processing-progress` e salva `youtubeUrl` na reuniao.
 
 ## Comandos Tauri usados pela UI
 
@@ -60,6 +65,12 @@
 - `delete_local_recording` — apaga arquivo local, zera `recordingPath`
 - `open_url` — abre URL no browser padrao
 
+**Google Meet detection:**
+- `start_meet_watcher` — inicia polling Win32 a cada 3s em background task tokio
+- `stop_meet_watcher` — desativa o polling
+- `accept_meet_prompt` — fecha popup, foca janela principal, emite `meet-start-recording`
+- `dismiss_meet_prompt` — fecha popup sem acao
+
 **Janela:**
 - `minimize_window`
 - `toggle_maximize_window`
@@ -74,7 +85,7 @@ Campos removidos (nao mais presentes nos tipos): `actionItems`, `decisions`. Dad
 
 ## Modelo de dados — Settings
 
-Inclui todos os campos anteriores mais: `youtubeClientId`, `youtubeClientSecret`.
+Inclui todos os campos anteriores mais: `youtubeClientId`, `youtubeClientSecret`, `captureSystemAudio`, `captureMicrophone`, `enableMeetDetection`.
 
 ## Modelo de dados — Store
 

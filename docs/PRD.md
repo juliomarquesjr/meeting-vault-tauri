@@ -52,10 +52,11 @@ Todas as zonas usam `align-items: stretch` para garantir altura uniforme entre p
 ### 6.2 Gravacao
 
 - Captura de tela via `navigator.mediaDevices.getDisplayMedia`.
+- Captura de microfone via `navigator.mediaDevices.getUserMedia` em paralelo, com mixagem via Web Audio API (`AudioContext`). Ambas as fontes (sistema e microfone) sao combinadas em um unico stream entregue ao `MediaRecorder`.
 - Gravacao em WebM via `MediaRecorder`.
 - Campo de titulo, categoria e tags configurados antes de iniciar a gravacao.
 - Tags adicionadas como badges removiveis (Enter ou virgula confirma cada tag).
-- Configuracao de resolucao maxima, FPS, bitrates e captura de audio do sistema quando disponivel.
+- Configuracao de resolucao maxima, FPS, bitrates, captura de audio do sistema e captura de microfone.
 - Indicador de status inline no cabecalho do painel (resolucao, FPS e tempo gravando).
 - Chunks de video streamados diretamente ao disco via IPC a cada segundo (sem acumulo em memoria), suportando gravacoes longas (20+ minutos).
 - Ao finalizar, `finalize_recording_session` renomeia o arquivo `.tmp` para `.webm` e cria a entrada na biblioteca.
@@ -125,6 +126,15 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 - Botao "Apagar arquivo local" disponivel quando reuniao ja publicada mas arquivo ainda existe, com confirmacao em modal.
 - Integracao configuravel em Integracoes → YouTube → Configurar.
 
+#### Deteccao automatica de Google Meet
+
+- O app monitora titulos de janelas do Windows a cada 3 segundos via Win32 `EnumWindows`.
+- Quando detecta uma reuniao Google Meet no Chrome (`"... - Google Meet"` ou `"Meet: xyz-abc-def"`), exibe um prompt flutuante (janela separada Tauri, sempre no topo) no canto inferior direito da tela.
+- O prompt oferece "Iniciar gravacao" (pre-preenche titulo e dispara gravacao) ou "Ignorar".
+- Auto-dismiss apos 15 segundos com barra de progresso visual.
+- Desativavel nas configuracoes de video.
+- Ver ADR 0009.
+
 #### Notion (planejado)
 
 - Card visivel na tela de Integracoes, sem implementacao nesta fase.
@@ -156,6 +166,8 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 | RF-014 | O app deve permitir publicar gravacoes no YouTube. | Implementado |
 | RF-014b | O app deve permitir integracoes externas adicionais no futuro (Notion, calendario). | Planejado |
 | RF-015 | O app deve migrar persistencia para SQLite quando a biblioteca crescer. | Planejado |
+| RF-016 | O app deve detectar reunioes Google Meet abertas no Chrome e sugerir gravacao via prompt flutuante. | Implementado |
+| RF-017 | O app deve capturar audio do microfone e mixar com audio do sistema durante a gravacao. | Implementado |
 
 ## 8. Requisitos nao funcionais
 
@@ -191,18 +203,19 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 
 ### Settings
 
-Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video, automacao de transcricao, configuracao de resumo (`disabled` ou `openrouter`, chave OpenRouter e modelo OpenRouter), e credenciais YouTube (`youtubeClientId`, `youtubeClientSecret`).
+Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video, automacao de transcricao, captura de audio do sistema (`captureSystemAudio`), captura de microfone (`captureMicrophone`), deteccao de Meet (`enableMeetDetection`), configuracao de resumo (`disabled` ou `openrouter`, chave OpenRouter e modelo OpenRouter), e credenciais YouTube (`youtubeClientId`, `youtubeClientSecret`).
 
 ## 10. Fluxos principais
 
 ### Gravacao
 
 1. Usuario preenche titulo, categoria e tags.
-2. UI chama `getDisplayMedia` e `begin_recording_session`.
-3. `MediaRecorder` captura chunks de video; cada chunk e enviado a `append_recording_chunk` para ser gravado diretamente ao arquivo `.tmp` em disco.
-4. Ao parar, UI aguarda a fila de chunks ser processada e chama `finalize_recording_session`.
-5. Backend renomeia `.tmp` para `.webm`, cria `Meeting` e atualiza `store.json`.
-6. UI exibe estado de finalizacao com etapas e barra de progresso estimada.
+2. UI chama `getDisplayMedia` (video + audio do sistema opcional) e, se habilitado, `getUserMedia` (microfone).
+3. Os streams de audio sao mixados via `AudioContext`; o stream final e passado ao `begin_recording_session` e ao `MediaRecorder`.
+4. `MediaRecorder` captura chunks de video; cada chunk e enviado a `append_recording_chunk` para ser gravado diretamente ao arquivo `.tmp` em disco.
+5. Ao parar, UI aguarda a fila de chunks ser processada e chama `finalize_recording_session`.
+6. Backend renomeia `.tmp` para `.webm`, cria `Meeting` e atualiza `store.json`.
+7. UI exibe estado de finalizacao com etapas e barra de progresso estimada.
 
 ### Processamento local
 
