@@ -2271,3 +2271,118 @@ input[type="range"] {
     justify-content: flex-start;
   }
 }
+
+/* ── Meet Detected Prompt ─────────────────────────────────────── */
+
+.meet-prompt {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 300px;
+  background: var(--surface-2, #1a1a2e);
+  border: 1px solid #7c3aed;
+  border-radius: 12px;
+  padding: 14px 16px 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+  animation: meetPromptIn 0.25s ease;
+}
+
+@keyframes meetPromptIn {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.meet-prompt__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.meet-prompt__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(124, 58, 237, 0.2);
+  border-radius: 6px;
+  color: #a78bfa;
+  flex-shrink: 0;
+}
+
+.meet-prompt__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #a78bfa;
+  flex: 1;
+}
+
+.meet-prompt__close {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.meet-prompt__close:hover {
+  color: var(--text, #f3f4f6);
+}
+
+.meet-prompt__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text, #f3f4f6);
+  margin: 0 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meet-prompt__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.meet-prompt__countdown-bar {
+  height: 2px;
+  background: #7c3aed;
+  border-radius: 2px;
+  margin-top: 10px;
+  transition: width 1s linear;
+}
+
+/* Modo standalone (janela popup dedicada) */
+
+.meet-prompt-root {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  display: flex;
+  align-items: stretch;
+}
+
+.meet-prompt--standalone {
+  position: relative;
+  bottom: auto;
+  right: auto;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  animation: none;
+  margin: 0;
+}

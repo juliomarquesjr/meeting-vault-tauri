@@ -7,7 +7,10 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -97,6 +100,8 @@ struct Settings {
     youtube_client_id: String,
     #[serde(default)]
     youtube_client_secret: String,
+    #[serde(default = "default_true")]
+    enable_meet_detection: bool,
 }
 
 impl Default for Settings {
@@ -123,6 +128,7 @@ impl Default for Settings {
             auto_transcribe: false,
             youtube_client_id: String::new(),
             youtube_client_secret: String::new(),
+            enable_meet_detection: true,
         }
     }
 }
@@ -201,6 +207,7 @@ struct Store {
 #[derive(Debug)]
 struct AppState {
     store: Mutex<Store>,
+    meet_watcher_active: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1517,6 +1524,194 @@ fn normalize_tags(tags: Vec<String>) -> Vec<String> {
     normalized
 }
 
+#[cfg(windows)]
+unsafe extern "system" fn enum_window_callback(
+    hwnd: windows::Win32::Foundation::HWND,
+    lparam: windows::Win32::Foundation::LPARAM,
+) -> windows::Win32::Foundation::BOOL {
+    let titles = &mut *(lparam.0 as *mut Vec<String>);
+    let mut buf = [0u16; 512];
+    let len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut buf);
+    if len > 0 {
+        let title = String::from_utf16_lossy(&buf[..len as usize]);
+        if title.contains("Google Meet") || title.starts_with("Meet:") {
+            titles.push(title);
+        }
+    }
+    windows::Win32::Foundation::BOOL(1)
+}
+
+#[cfg(windows)]
+fn detect_google_meet_window() -> Option<String> {
+    let mut titles: Vec<String> = Vec::new();
+    let ptr = &mut titles as *mut Vec<String>;
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::EnumWindows(
+            Some(enum_window_callback),
+            windows::Win32::Foundation::LPARAM(ptr as isize),
+        );
+    }
+    titles.first().map(|title| {
+        if title.contains("Google Meet") {
+            // "Daily Standup - Google Meet" ou "Daily Standup - Google Meet - Google Chrome"
+            title
+                .split(" - Google Meet")
+                .next()
+                .unwrap_or("Reuniao Google Meet")
+                .trim()
+                .to_string()
+        } else {
+            // "Meet: gcq-bsde-heu - Google Chrome" (link direto sem nome)
+            "Reuniao Google Meet".to_string()
+        }
+    })
+}
+
+#[cfg(not(windows))]
+fn detect_google_meet_window() -> Option<String> {
+    None
+}
+
+fn show_meet_prompt(app: &AppHandle, title: &str) {
+    let label = "meet-prompt";
+
+    if let Some(existing) = app.get_webview_window(label) {
+        let _ = existing.close();
+    }
+
+    let (screen_w, screen_h) = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let scale = m.scale_factor();
+            let size = m.size();
+            (size.width as f64 / scale, size.height as f64 / scale)
+        })
+        .unwrap_or((1920.0, 1080.0));
+
+    let win_w = 320.0_f64;
+    let win_h = 155.0_f64;
+    let margin = 16.0_f64;
+    let taskbar_h = 56.0_f64;
+
+    let encoded: String = title
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            ' ' => "%20".to_string(),
+            c => format!("%{:02X}", c as u32),
+        })
+        .collect();
+
+    let _ = tauri::WebviewWindowBuilder::new(
+        app,
+        label,
+        tauri::WebviewUrl::App(
+            format!("index.html?mode=meet-prompt&title={}", encoded).into(),
+        ),
+    )
+    .title("")
+    .inner_size(win_w, win_h)
+    .position(
+        screen_w - win_w - margin,
+        screen_h - win_h - taskbar_h - margin,
+    )
+    .always_on_top(true)
+    .decorations(false)
+    .transparent(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .build();
+}
+
+#[tauri::command]
+async fn start_meet_watcher(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let active = state.meet_watcher_active.clone();
+    if active.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    active.store(true, Ordering::SeqCst);
+
+    tokio::spawn(async move {
+        let mut was_in_meet = false;
+        let mut last_title = String::new();
+
+        while active.load(Ordering::SeqCst) {
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+            let detection_enabled = app
+                .try_state::<AppState>()
+                .map(|s| {
+                    s.store
+                        .lock()
+                        .map(|store| store.settings.enable_meet_detection)
+                        .unwrap_or(true)
+                })
+                .unwrap_or(true);
+
+            if !detection_enabled {
+                if was_in_meet {
+                    if let Some(w) = app.get_webview_window("meet-prompt") {
+                        let _ = w.close();
+                    }
+                    was_in_meet = false;
+                    last_title.clear();
+                }
+                continue;
+            }
+
+            match detect_google_meet_window() {
+                Some(title) => {
+                    if !was_in_meet || title != last_title {
+                        show_meet_prompt(&app, &title);
+                        last_title = title;
+                        was_in_meet = true;
+                    }
+                }
+                None => {
+                    if was_in_meet {
+                        if let Some(w) = app.get_webview_window("meet-prompt") {
+                            let _ = w.close();
+                        }
+                        was_in_meet = false;
+                        last_title.clear();
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_meet_watcher(state: State<'_, AppState>) -> Result<(), String> {
+    state.meet_watcher_active.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+fn accept_meet_prompt(app: AppHandle, title: String) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("meet-prompt") {
+        let _ = w.close();
+    }
+    show_main_window(&app);
+    let _ = app.emit_to("main", "meet-start-recording", json!({ "title": title }));
+    Ok(())
+}
+
+#[tauri::command]
+fn dismiss_meet_prompt(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("meet-prompt") {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
 fn setup_tray(app: &mut App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Abrir biblioteca", true, None::<&str>)?;
     let start = MenuItem::with_id(app, "start", "Iniciar gravacao", true, None::<&str>)?;
@@ -1579,6 +1774,7 @@ pub fn run() {
             let store = load_store(app.handle()).unwrap_or_default();
             app.manage(AppState {
                 store: Mutex::new(store),
+                meet_watcher_active: Arc::new(AtomicBool::new(false)),
             });
             setup_tray(app)?;
 
@@ -1619,7 +1815,11 @@ pub fn run() {
             minimize_window,
             toggle_maximize_window,
             hide_window,
-            start_dragging_window
+            start_dragging_window,
+            start_meet_watcher,
+            stop_meet_watcher,
+            accept_meet_prompt,
+            dismiss_meet_prompt
         ])
         .run(tauri::generate_context!())
         .expect("error while running Meeting Vault");

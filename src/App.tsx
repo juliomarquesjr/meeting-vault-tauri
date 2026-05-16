@@ -74,9 +74,11 @@ const defaultSettings: Settings = {
   videoBitsPerSecond: 2_400_000,
   audioBitsPerSecond: 128_000,
   captureSystemAudio: true,
+  captureMicrophone: true,
   autoTranscribe: false,
   youtubeClientId: "",
-  youtubeClientSecret: ""
+  youtubeClientSecret: "",
+  enableMeetDetection: true
 };
 
 const defaultCategories = ["Cliente", "Interna", "Produto", "Comercial", "Treinamento", "Suporte"];
@@ -287,6 +289,8 @@ function App() {
   const [isDeletingLocal, setIsDeletingLocal] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const chunkQueueRef = useRef<Promise<void>>(Promise.resolve());
   const startedAtRef = useRef<Date | null>(null);
@@ -470,7 +474,7 @@ function App() {
     setNotice("");
     setRecordingFinalization({ active: false, message: "", percent: 0 });
     const { width, height } = resolutionDimensions(settings.resolution);
-    const stream = await navigator.mediaDevices.getDisplayMedia({
+    const displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: {
         frameRate: { ideal: settings.frameRate, max: Math.max(settings.frameRate, 30) },
         width: { ideal: width, max: width },
@@ -478,6 +482,31 @@ function App() {
       },
       audio: settings.captureSystemAudio
     });
+
+    let stream = displayStream;
+
+    if (settings.captureMicrophone) {
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStreamRef.current = micStream;
+
+        const audioCtx = new AudioContext();
+        audioCtxRef.current = audioCtx;
+        const destination = audioCtx.createMediaStreamDestination();
+
+        if (displayStream.getAudioTracks().length > 0) {
+          audioCtx.createMediaStreamSource(displayStream).connect(destination);
+        }
+        audioCtx.createMediaStreamSource(micStream).connect(destination);
+
+        stream = new MediaStream([
+          ...displayStream.getVideoTracks(),
+          ...destination.stream.getAudioTracks()
+        ]);
+      } catch {
+        // Microphone permission denied or unavailable — record without mic
+      }
+    }
 
     streamRef.current = stream;
     startedAtRef.current = new Date();
@@ -525,6 +554,10 @@ function App() {
 
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+      audioCtxRef.current?.close();
+      audioCtxRef.current = null;
 
       const startedAt = startedAtRef.current ?? new Date();
       const durationSeconds = Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 1000));
@@ -708,6 +741,7 @@ function App() {
     invoke<boolean>("get_youtube_connection_status")
       .then(setYoutubeConnected)
       .catch(() => {});
+    invoke("start_meet_watcher").catch(() => {});
   }, [refreshMeetings, refreshSettings]);
 
   useEffect(() => {
@@ -736,6 +770,10 @@ function App() {
         invoke<boolean>("get_youtube_connection_status")
           .then(setYoutubeConnected)
           .catch(() => {});
+      }),
+      listen<{ title: string }>("meet-start-recording", (event) => {
+        setRecordingTitle(event.payload.title);
+        startRecording().catch((error) => setNotice(String(error)));
       })
     ]);
 
@@ -1764,6 +1802,26 @@ function App() {
               }
             />
             <span>Capturar audio do sistema quando a fonte permitir</span>
+          </label>
+          <label className="toggle-row span-two">
+            <input
+              type="checkbox"
+              checked={settingsDraft.captureMicrophone}
+              onChange={(event) =>
+                setSettingsDraft((current) => ({ ...current, captureMicrophone: event.target.checked }))
+              }
+            />
+            <span>Capturar audio do microfone durante a gravacao</span>
+          </label>
+          <label className="toggle-row span-two">
+            <input
+              type="checkbox"
+              checked={settingsDraft.enableMeetDetection}
+              onChange={(event) =>
+                setSettingsDraft((current) => ({ ...current, enableMeetDetection: event.target.checked }))
+              }
+            />
+            <span>Detectar reunioes no Google Meet e sugerir gravacao</span>
           </label>
         </div>
       </section>

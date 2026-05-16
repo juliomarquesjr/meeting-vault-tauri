@@ -47,9 +47,11 @@ export interface Settings {
   videoBitsPerSecond: number;
   audioBitsPerSecond: number;
   captureSystemAudio: boolean;
+  captureMicrophone: boolean;
   autoTranscribe: boolean;
   youtubeClientId: string;
   youtubeClientSecret: string;
+  enableMeetDetection: boolean;
 }
 
 export interface SaveRecordingInput {
