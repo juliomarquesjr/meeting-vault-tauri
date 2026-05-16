@@ -17,6 +17,8 @@ export interface Meeting {
   progressMessage: string;
   progressPercent: number;
   error: string;
+  youtubeVideoId: string;
+  youtubeUrl: string;
 }
 
 export interface ProcessingProgress {
@@ -46,6 +48,8 @@ export interface Settings {
   audioBitsPerSecond: number;
   captureSystemAudio: boolean;
   autoTranscribe: boolean;
+  youtubeClientId: string;
+  youtubeClientSecret: string;
 }
 
 export interface SaveRecordingInput {

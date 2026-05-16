@@ -43,6 +43,8 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { IntegrationsView } from "./components/IntegrationsView";
+import { YoutubeUploadDialog } from "./components/YoutubeUploadDialog";
 import type { FinalizeRecordingInput, Meeting, ProcessingProgress, Settings } from "./types";
 
 type View = "dashboard" | "library" | "taxonomy" | "settings" | "summary" | "video" | "integrations";
@@ -72,7 +74,9 @@ const defaultSettings: Settings = {
   videoBitsPerSecond: 2_400_000,
   audioBitsPerSecond: 128_000,
   captureSystemAudio: true,
-  autoTranscribe: false
+  autoTranscribe: false,
+  youtubeClientId: "",
+  youtubeClientSecret: ""
 };
 
 const defaultCategories = ["Cliente", "Interna", "Produto", "Comercial", "Treinamento", "Suporte"];
@@ -276,6 +280,11 @@ function App() {
   const [activeContentModal, setActiveContentModal] = useState<ContentModal>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [isDeletingMeeting, setIsDeletingMeeting] = useState(false);
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [youtubeUploadOpen, setYoutubeUploadOpen] = useState(false);
+  const [isUploadingToYoutube, setIsUploadingToYoutube] = useState(false);
+  const [deleteLocalConfirmOpen, setDeleteLocalConfirmOpen] = useState(false);
+  const [isDeletingLocal, setIsDeletingLocal] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -629,6 +638,60 @@ function App() {
     }
   }, [meetings, selectedMeeting]);
 
+  const uploadToYoutube = useCallback(
+    async (title: string, description: string, privacy: string, deleteLocal: boolean) => {
+      if (!selectedMeeting) return;
+      setIsUploadingToYoutube(true);
+      setYoutubeUploadOpen(false);
+      setProcessingIds((current) => new Set(current).add(selectedMeeting.id));
+      setMeetings((current) =>
+        current.map((item) =>
+          item.id === selectedMeeting.id
+            ? { ...item, status: "processing", progressMessage: "Preparando upload", progressPercent: 2 }
+            : item
+        )
+      );
+      try {
+        const updated = await invoke<Meeting>("upload_to_youtube", {
+          id: selectedMeeting.id,
+          title,
+          description,
+          privacy,
+          deleteLocal
+        });
+        setMeetings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        setSelectedId(updated.id);
+        setNotice("Video publicado no YouTube com sucesso.");
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+        await refreshMeetings();
+      } finally {
+        setIsUploadingToYoutube(false);
+        setProcessingIds((current) => {
+          const next = new Set(current);
+          next.delete(selectedMeeting.id);
+          return next;
+        });
+      }
+    },
+    [selectedMeeting, refreshMeetings]
+  );
+
+  const deleteLocalRecording = useCallback(async () => {
+    if (!selectedMeeting) return;
+    setIsDeletingLocal(true);
+    try {
+      const updated = await invoke<Meeting>("delete_local_recording", { id: selectedMeeting.id });
+      setMeetings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setDeleteLocalConfirmOpen(false);
+      setNotice("Arquivo local removido.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsDeletingLocal(false);
+    }
+  }, [selectedMeeting]);
+
   const updateQualityPreset = useCallback((preset: string) => {
     const profile = qualityPresets[preset] ?? qualityPresets.balanced;
     setSettingsDraft((current) => ({
@@ -642,6 +705,9 @@ function App() {
   useEffect(() => {
     refreshMeetings().catch((error) => setNotice(String(error)));
     refreshSettings().catch((error) => setNotice(String(error)));
+    invoke<boolean>("get_youtube_connection_status")
+      .then(setYoutubeConnected)
+      .catch(() => {});
   }, [refreshMeetings, refreshSettings]);
 
   useEffect(() => {
@@ -665,6 +731,11 @@ function App() {
               : meeting
           )
         );
+      }),
+      listen("youtube-connected", () => {
+        invoke<boolean>("get_youtube_connection_status")
+          .then(setYoutubeConnected)
+          .catch(() => {});
       })
     ]);
 
@@ -1036,6 +1107,27 @@ function App() {
               >
                 <FolderOpen size={15} />
               </button>
+              {youtubeConnected &&
+                selectedMeeting.recordingPath &&
+                !selectedMeeting.youtubeVideoId && (
+                  <button
+                    className="icon-button"
+                    title="Publicar no YouTube"
+                    disabled={isProcessing}
+                    onClick={() => setYoutubeUploadOpen(true)}
+                  >
+                    <MonitorUp size={15} />
+                  </button>
+                )}
+              {selectedMeeting.youtubeVideoId && selectedMeeting.recordingPath && (
+                <button
+                  className="icon-button danger"
+                  title="Apagar arquivo local"
+                  onClick={() => setDeleteLocalConfirmOpen(true)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
               <button className="icon-button danger" onClick={() => setDeleteConfirmOpen(true)} title="Excluir">
                 <Trash2 size={15} />
               </button>
@@ -1100,6 +1192,16 @@ function App() {
           <span><Clock3 size={13} />{formatDuration(selectedMeeting.durationSeconds)}</span>
           <span><HardDrive size={13} />{formatBytes(selectedMeeting.sizeBytes)}</span>
           <span><BadgeCheck size={13} />{statusLabel(selectedMeeting)}</span>
+          {selectedMeeting.youtubeUrl && (
+            <button
+              className="icon-button"
+              style={{ fontSize: "12px", gap: "4px", height: "auto", padding: "2px 6px" }}
+              title="Abrir no YouTube"
+              onClick={() => invoke("open_url", { url: selectedMeeting.youtubeUrl })}
+            >
+              <ExternalLink size={12} /> YouTube
+            </button>
+          )}
         </div>
 
         {/* Player de vídeo */}
@@ -1668,36 +1770,6 @@ function App() {
     </div>
   );
 
-  const renderIntegrations = () => {
-    const integrations = [
-      { name: "Microsoft Teams", icon: MonitorUp, status: "Planejado" },
-      { name: "Outlook Calendar", icon: CalendarDays, status: "Planejado" },
-      { name: "Google Calendar", icon: CalendarDays, status: "Planejado" },
-      { name: "Notion", icon: Database, status: "Planejado" },
-      { name: "Slack", icon: Link2, status: "Planejado" },
-      { name: "CRM", icon: Cloud, status: "Planejado" }
-    ];
-
-    return (
-      <div className="integrations-view">
-        {integrations.map((integration) => {
-          const Icon = integration.icon;
-          return (
-            <section className="integration-card" key={integration.name}>
-              <div>
-                <Icon size={22} />
-                <strong>{integration.name}</strong>
-                <span>{integration.status}</span>
-              </div>
-              <button className="secondary-button">
-                Configurar <ExternalLink size={15} />
-              </button>
-            </section>
-          );
-        })}
-      </div>
-    );
-  };
 
   const renderContentModal = () => {
     if (!selectedMeeting || !activeContentModal) return null;
@@ -1751,7 +1823,19 @@ function App() {
     if (view === "settings") return renderSettings();
     if (view === "summary") return renderSummarySettings();
     if (view === "video") return renderVideoSettings();
-    return renderIntegrations();
+    return (
+      <IntegrationsView
+        youtubeConnected={youtubeConnected}
+        onYoutubeConnectedChange={setYoutubeConnected}
+        settings={settings}
+        onSettingsUpdated={(updated) => {
+          const merged = { ...defaultSettings, ...updated };
+          setSettings(merged);
+          setSettingsDraft(merged);
+        }}
+        onNotice={setNotice}
+      />
+    );
   };
 
   return (
@@ -1844,6 +1928,26 @@ function App() {
         loading={isDeletingMeeting}
         onConfirm={deleteMeeting}
         onCancel={() => setDeleteConfirmOpen(false)}
+      />
+      {selectedMeeting && (
+        <YoutubeUploadDialog
+          open={youtubeUploadOpen}
+          meeting={selectedMeeting}
+          onConfirm={uploadToYoutube}
+          onCancel={() => setYoutubeUploadOpen(false)}
+          loading={isUploadingToYoutube}
+        />
+      )}
+      <ConfirmDialog
+        open={Boolean(selectedMeeting && deleteLocalConfirmOpen)}
+        title="Apagar arquivo local?"
+        message="O video sera removido do disco, mas a reuniao e o link do YouTube serao mantidos."
+        detail={selectedMeeting ? selectedMeeting.title : undefined}
+        confirmLabel="Apagar arquivo"
+        destructive
+        loading={isDeletingLocal}
+        onConfirm={deleteLocalRecording}
+        onCancel={() => setDeleteLocalConfirmOpen(false)}
       />
     </div>
   );

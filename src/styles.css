@@ -1994,6 +1994,16 @@ input[type="range"] {
 }
 
 /* ─── Integrations ───────────────────────────────────────────────────────── */
+.integrations-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.integration-card--active {
+  border-color: var(--accent);
+}
+
 .integrations-view {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

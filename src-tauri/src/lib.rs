@@ -40,6 +40,10 @@ struct Meeting {
     #[serde(default)]
     progress_percent: u8,
     error: String,
+    #[serde(default)]
+    youtube_video_id: String,
+    #[serde(default)]
+    youtube_url: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,6 +93,10 @@ struct Settings {
     capture_system_audio: bool,
     #[serde(default)]
     auto_transcribe: bool,
+    #[serde(default)]
+    youtube_client_id: String,
+    #[serde(default)]
+    youtube_client_secret: String,
 }
 
 impl Default for Settings {
@@ -113,8 +121,21 @@ impl Default for Settings {
             audio_bits_per_second: default_audio_bits_per_second(),
             capture_system_audio: true,
             auto_transcribe: false,
+            youtube_client_id: String::new(),
+            youtube_client_secret: String::new(),
         }
     }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YoutubeTokens {
+    #[serde(default)]
+    access_token: String,
+    #[serde(default)]
+    refresh_token: String,
+    #[serde(default)]
+    expires_at: i64,
 }
 
 fn default_processing_mode() -> String {
@@ -173,6 +194,8 @@ fn default_true() -> bool {
 struct Store {
     meetings: Vec<Meeting>,
     settings: Settings,
+    #[serde(default)]
+    youtube_tokens: YoutubeTokens,
 }
 
 #[derive(Debug)]
@@ -252,6 +275,8 @@ fn save_recording(
         progress_message: String::new(),
         progress_percent: 0,
         error: String::new(),
+        youtube_video_id: String::new(),
+        youtube_url: String::new(),
     };
 
     let mut store = state.store.lock().map_err(|error| error.to_string())?;
@@ -325,6 +350,8 @@ fn finalize_recording_session(
         progress_message: String::new(),
         progress_percent: 0,
         error: String::new(),
+        youtube_video_id: String::new(),
+        youtube_url: String::new(),
     };
 
     let mut store = state.store.lock().map_err(|e| e.to_string())?;
@@ -341,6 +368,387 @@ fn cancel_recording_session(app: AppHandle, session_id: String) -> Result<(), St
     }
     Ok(())
 }
+
+// ─── YouTube integration ─────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_youtube_connection_status(state: State<'_, AppState>) -> Result<bool, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    Ok(!store.youtube_tokens.refresh_token.is_empty())
+}
+
+#[tauri::command]
+fn disconnect_youtube(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().map_err(|e| e.to_string())?;
+    store.youtube_tokens = YoutubeTokens::default();
+    persist_store(&app, &store)
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    Command::new("cmd")
+        .args(["/c", "start", "", &url])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_local_recording(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Meeting, String> {
+    let mut store = state.store.lock().map_err(|e| e.to_string())?;
+    let meeting = store
+        .meetings
+        .iter_mut()
+        .find(|m| m.id == id)
+        .ok_or_else(|| "Reuniao nao encontrada.".to_string())?;
+    if !meeting.recording_path.is_empty() && Path::new(&meeting.recording_path).exists() {
+        fs::remove_file(&meeting.recording_path).map_err(|e| e.to_string())?;
+    }
+    meeting.recording_path = String::new();
+    let meeting = meeting.clone();
+    persist_store(&app, &store)?;
+    Ok(meeting)
+}
+
+#[tauri::command]
+async fn connect_youtube(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (client_id, client_secret) = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        (
+            store.settings.youtube_client_id.trim().to_string(),
+            store.settings.youtube_client_secret.trim().to_string(),
+        )
+    };
+    if client_id.is_empty() || client_secret.is_empty() {
+        return Err("Configure o Client ID e Client Secret do YouTube nas configuracoes.".into());
+    }
+
+    let redirect_uri = "http://localhost:8765/oauth/callback";
+    let auth_url = format!(
+        "https://accounts.google.com/o/oauth2/v2/auth\
+         ?client_id={client_id}\
+         &redirect_uri=http%3A%2F%2Flocalhost%3A8765%2Foauth%2Fcallback\
+         &response_type=code\
+         &scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube.upload\
+         &access_type=offline\
+         &prompt=consent"
+    );
+
+    // Start local HTTP server to capture OAuth callback
+    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+
+        let listener = match TcpListener::bind("127.0.0.1:8765") {
+            Ok(l) => l,
+            Err(e) => {
+                let _ = tx.send(Err(format!("Falha ao abrir servidor local: {e}")));
+                return;
+            }
+        };
+
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let reader = BufReader::new(&stream);
+                let first_line = reader
+                    .lines()
+                    .next()
+                    .and_then(|r| r.ok())
+                    .unwrap_or_default();
+
+                // Extract code from "GET /oauth/callback?code=XXX HTTP/1.1"
+                let code = first_line
+                    .split('?')
+                    .nth(1)
+                    .and_then(|q| q.split('&').find(|p| p.starts_with("code=")))
+                    .and_then(|p| p.strip_prefix("code="))
+                    .map(|c| c.split_whitespace().next().unwrap_or(c).to_string());
+
+                let html = "<html><body><h2>Autorizacao concluida! Pode fechar esta aba.</h2></body></html>";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{html}",
+                    html.len()
+                );
+                let _ = (&stream).write_all(response.as_bytes());
+
+                match code {
+                    Some(c) => { let _ = tx.send(Ok(c)); }
+                    None => { let _ = tx.send(Err("Codigo de autorizacao nao encontrado.".into())); }
+                }
+            }
+            Err(e) => { let _ = tx.send(Err(format!("Timeout ou erro na autorizacao: {e}"))); }
+        }
+    });
+
+    // Open browser
+    Command::new("cmd")
+        .args(["/c", "start", "", &auth_url])
+        .spawn()
+        .map_err(|e| format!("Falha ao abrir o navegador: {e}"))?;
+
+    // Wait for code from the callback thread (2 minute timeout)
+    let code = rx
+        .recv_timeout(std::time::Duration::from_secs(120))
+        .map_err(|_| "Timeout: autorizacao nao concluida dentro de 2 minutos.".to_string())??;
+
+    // Exchange code for tokens
+    let client = reqwest::Client::new();
+    let params = [
+        ("code", code.as_str()),
+        ("client_id", &client_id),
+        ("client_secret", &client_secret),
+        ("redirect_uri", redirect_uri),
+        ("grant_type", "authorization_code"),
+    ];
+    let response = client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| format!("Falha ao trocar token: {e}"))?;
+
+    let body: Value = response.json().await.map_err(|e| e.to_string())?;
+    let access_token = body["access_token"]
+        .as_str()
+        .ok_or("Token de acesso ausente na resposta.")?
+        .to_string();
+    let refresh_token = body["refresh_token"]
+        .as_str()
+        .ok_or("Token de atualizacao ausente. Certifique-se de usar prompt=consent.")?
+        .to_string();
+    let expires_in = body["expires_in"].as_i64().unwrap_or(3600);
+    let expires_at = Utc::now().timestamp() + expires_in;
+
+    {
+        let mut store = state.store.lock().map_err(|e| e.to_string())?;
+        store.youtube_tokens = YoutubeTokens { access_token, refresh_token, expires_at };
+        persist_store(&app, &store)?;
+    }
+
+    let _ = app.emit("youtube-connected", ());
+    Ok(())
+}
+
+async fn refresh_youtube_token_if_needed(
+    client: &reqwest::Client,
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+) -> Result<String, String> {
+    let (access_token, refresh_token, expires_at, client_id, client_secret) = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        (
+            store.youtube_tokens.access_token.clone(),
+            store.youtube_tokens.refresh_token.clone(),
+            store.youtube_tokens.expires_at,
+            store.settings.youtube_client_id.trim().to_string(),
+            store.settings.youtube_client_secret.trim().to_string(),
+        )
+    };
+
+    if refresh_token.is_empty() {
+        return Err("YouTube nao conectado. Configure a integracao nas configuracoes.".into());
+    }
+
+    // Refresh if expires within 60 seconds
+    if Utc::now().timestamp() + 60 < expires_at {
+        return Ok(access_token);
+    }
+
+    let params = [
+        ("refresh_token", refresh_token.as_str()),
+        ("client_id", &client_id),
+        ("client_secret", &client_secret),
+        ("grant_type", "refresh_token"),
+    ];
+    let body: Value = client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| format!("Falha ao renovar token: {e}"))?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let new_token = body["access_token"]
+        .as_str()
+        .ok_or("Falha ao renovar token de acesso.")?
+        .to_string();
+    let expires_in = body["expires_in"].as_i64().unwrap_or(3600);
+    let new_expires_at = Utc::now().timestamp() + expires_in;
+
+    {
+        let mut store = state.store.lock().map_err(|e| e.to_string())?;
+        store.youtube_tokens.access_token = new_token.clone();
+        store.youtube_tokens.expires_at = new_expires_at;
+        persist_store(app, &store)?;
+    }
+
+    Ok(new_token)
+}
+
+#[tauri::command]
+async fn upload_to_youtube(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+    description: String,
+    privacy: String,
+    delete_local: bool,
+) -> Result<Meeting, String> {
+    let (recording_path, mime_type) = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let meeting = store
+            .meetings
+            .iter()
+            .find(|m| m.id == id)
+            .ok_or("Reuniao nao encontrada.")?;
+        if meeting.recording_path.is_empty() {
+            return Err("Arquivo local nao disponivel para upload.".into());
+        }
+        if !Path::new(&meeting.recording_path).exists() {
+            return Err("Arquivo de video nao encontrado no disco.".into());
+        }
+        (meeting.recording_path.clone(), meeting.mime_type.clone())
+    };
+
+    emit_processing_progress(&app, &id, "Preparando upload", 2, "processing");
+
+    let client = reqwest::Client::new();
+    let access_token = refresh_youtube_token_if_needed(&client, &app, &state).await?;
+
+    let file_meta = fs::metadata(&recording_path).map_err(|e| e.to_string())?;
+    let file_size = file_meta.len();
+
+    // Initiate resumable upload session
+    let metadata = json!({
+        "snippet": {
+            "title": title.trim(),
+            "description": description.trim(),
+            "categoryId": "22"
+        },
+        "status": {
+            "privacyStatus": privacy
+        }
+    });
+
+    let init_response = client
+        .post("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status")
+        .bearer_auth(&access_token)
+        .header("X-Upload-Content-Type", &mime_type)
+        .header("X-Upload-Content-Length", file_size.to_string())
+        .json(&metadata)
+        .send()
+        .await
+        .map_err(|e| format!("Falha ao iniciar sessao de upload: {e}"))?;
+
+    if !init_response.status().is_success() {
+        let status = init_response.status();
+        let body = init_response.text().await.unwrap_or_default();
+        return Err(format!("Erro ao iniciar upload no YouTube ({status}): {body}"));
+    }
+
+    let upload_uri = init_response
+        .headers()
+        .get("Location")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("YouTube nao retornou URI de upload.")?
+        .to_string();
+
+    emit_processing_progress(&app, &id, "Sessao de upload iniciada", 5, "processing");
+
+    // Upload in 8 MB chunks
+    const CHUNK_SIZE: u64 = 8 * 1024 * 1024;
+    let mut file = tokio::fs::File::open(&recording_path)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut bytes_sent: u64 = 0;
+    let video_id;
+
+    loop {
+        let start = bytes_sent;
+        let end = (start + CHUNK_SIZE - 1).min(file_size - 1);
+        let chunk_len = end - start + 1;
+
+        let mut buf = vec![0u8; chunk_len as usize];
+        use tokio::io::AsyncReadExt;
+        file.read_exact(&mut buf)
+            .await
+            .map_err(|e| format!("Falha ao ler chunk: {e}"))?;
+
+        let content_range = format!("bytes {start}-{end}/{file_size}");
+        let response = client
+            .put(&upload_uri)
+            .header("Content-Range", &content_range)
+            .header("Content-Type", &mime_type)
+            .body(buf)
+            .send()
+            .await
+            .map_err(|e| format!("Falha ao enviar chunk: {e}"))?;
+
+        bytes_sent += chunk_len;
+
+        let status = response.status().as_u16();
+        if status == 308 {
+            // Resume Incomplete — continue to next chunk
+            let percent = (5 + bytes_sent * 90 / file_size) as u8;
+            emit_processing_progress(&app, &id, "Enviando video...", percent, "processing");
+            continue;
+        } else if status == 200 || status == 201 {
+            let body: Value = response.json().await.map_err(|e| e.to_string())?;
+            video_id = body["id"].as_str().unwrap_or("").to_string();
+            break;
+        } else {
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Erro durante upload ({status}): {body}"));
+        }
+    }
+
+    if video_id.is_empty() {
+        return Err("YouTube nao retornou ID do video apos upload.".into());
+    }
+
+    let youtube_url = format!("https://www.youtube.com/watch?v={video_id}");
+    emit_processing_progress(&app, &id, "Finalizando publicacao", 98, "processing");
+
+    // Persist result
+    let updated_meeting = {
+        let mut store = state.store.lock().map_err(|e| e.to_string())?;
+        let meeting = store
+            .meetings
+            .iter_mut()
+            .find(|m| m.id == id)
+            .ok_or("Reuniao nao encontrada.")?;
+        meeting.youtube_video_id = video_id;
+        meeting.youtube_url = youtube_url;
+        meeting.status = "completed".into();
+        meeting.progress_message = String::new();
+        meeting.progress_percent = 0;
+        if delete_local && !meeting.recording_path.is_empty() {
+            if Path::new(&meeting.recording_path).exists() {
+                fs::remove_file(&meeting.recording_path).map_err(|e| e.to_string())?;
+            }
+            meeting.recording_path = String::new();
+        }
+        let m = meeting.clone();
+        persist_store(&app, &store)?;
+        m
+    };
+
+    emit_processing_progress(&app, &id, "Video publicado no YouTube", 100, "completed");
+    Ok(updated_meeting)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn update_meeting_title(
@@ -1195,6 +1603,12 @@ pub fn run() {
             append_recording_chunk,
             finalize_recording_session,
             cancel_recording_session,
+            get_youtube_connection_status,
+            connect_youtube,
+            disconnect_youtube,
+            upload_to_youtube,
+            delete_local_recording,
+            open_url,
             update_meeting_title,
             update_meeting_metadata,
             delete_meeting,
