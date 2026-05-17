@@ -25,7 +25,8 @@ Meeting Vault deve parecer uma ferramenta profissional de operacao, nao um MVP s
 - Salvar video compactado localmente.
 - Editar titulo da reuniao, categoria e tags.
 - Busca por titulo, tags e transcricao.
-- Transcricao local com Whisper ou via API.
+- Transcricao local com Whisper (saida JSON com timestamps por segmento) ou via API.
+- Diarizacao local opt-in via pyannote.audio — identifica falantes (Falante A, B...) e segmenta o transcript com timestamps. Requer Python + modelo HuggingFace (~2GB) e tem diagnostico separado para Python, pyannote.audio e cache do modelo.
 - Tray do Windows.
 - Progresso visivel durante transcricao.
 - Publicar gravacao no YouTube com titulo, descricao e visibilidade — via OAuth 2.0 e YouTube Data API v3. Link do video salvo na reuniao.
@@ -39,7 +40,7 @@ Meeting Vault deve parecer uma ferramenta profissional de operacao, nao um MVP s
 ## Funcionalidades diferidas
 
 - Resumo executivo com acoes e decisoes — disponivel apenas via OpenRouter opt-in, em tela separada de resumo; llama.cpp continua removido, ver [[../docs/adr/0005-remove-summarization|ADR 0005]] e [[../docs/adr/0006-openrouter-summary|ADR 0006]].
-- Identificacao de participantes e diarizacao.
+- Renomeacao manual de falantes (Falante A → nome real) apos diarizacao.
 - Integracoes reais com calendario e CRM.
 
 ## Referencias competitivas

@@ -5,7 +5,8 @@
 1. Validar configuracao local (FFmpeg, whisper-cli, modelo Whisper).
 2. Extrair audio com FFmpeg (WAV mono 16 kHz).
 3. Transcrever com whisper.cpp.
-4. Persistir transcricao.
+4. Se habilitado, executar diarizacao local via `scripts/diarize.py` + pyannote.audio.
+5. Persistir transcricao e segmentos de falantes quando houver.
 
 O resumo com llama.cpp foi removido desta fase. Ver [[../docs/adr/0005-remove-summarization|ADR 0005]]. O resumo voltou apenas como opcao OpenRouter sob demanda, separada do pipeline local.
 
@@ -14,6 +15,7 @@ O resumo com llama.cpp foi removido desta fase. Ver [[../docs/adr/0005-remove-su
 - `tools/ffmpeg/.../bin/ffmpeg.exe`
 - `tools/whisper.cpp/Release/whisper-cli.exe`
 - `models/whisper/*.bin`
+- Python 3.10+ com `pyannote.audio`, `torch`, `torchaudio` e `torchcodec` para diarizacao opt-in.
 
 O diretorio `tools/llama.cpp/` e o modelo `models/llm/*.gguf` foram removidos do projeto.
 
@@ -28,6 +30,28 @@ npm run bootstrap:local-ai
 O script baixa FFmpeg, `whisper-cli.exe` e um modelo Whisper para `tools/` e `models/`, que sao diretorios locais ignorados pelo Git.
 
 ## Problemas comuns
+
+### Diarizacao acusa pyannote.audio ou modelo pendente
+
+Sintoma: painel de diarizacao indica `pyannote.audio` pendente ou falha ao carregar.
+
+Acao:
+
+- Confirmar que o campo "Caminho do Python" aponta para o mesmo Python usado no terminal.
+- Instalar/atualizar `pyannote.audio` pelo Python configurado:
+
+```powershell
+python -m pip install -U pyannote.audio
+```
+
+- Reparar a pilha PyTorch CPU separadamente, usando o indice do PyTorch apenas para `torch`, `torchaudio` e `torchcodec`:
+
+```powershell
+python -m pip install -U --force-reinstall torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cpu
+```
+
+- Se o item pendente for o modelo, aceitar os termos em `https://hf.co/pyannote/speaker-diarization-3.1`, gerar um token HuggingFace e usar o botao de download do app.
+- Ler o detalhe exibido no painel antes de reinstalar tudo; o diagnostico separa erro de Python, importacao de `pyannote.audio` e cache do modelo.
 
 ### Caminho invalido para FFmpeg ou Whisper
 

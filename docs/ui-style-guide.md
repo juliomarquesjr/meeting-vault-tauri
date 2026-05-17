@@ -331,6 +331,7 @@ O detalhe da biblioteca inclui card de resumo ao lado do card de transcricao:
 
 - `Transcricao`: concentra Whisper, FFmpeg, modo local/API/hibrido, idioma, OpenAI API key e transcricao automatica.
 - `Resumo`: tela separada para `Desativado` ou `OpenRouter`, chave OpenRouter e ID do modelo. Nao deve conter controles de Whisper ou transcricao.
+- `Video e qualidade`: concentra captura, qualidade, deteccao de Meet e diarizacao. O bloco de diarizacao usa `.diag-settings-bar`, `.diag-summary`, `.diag-list`, `.diag-item`, `.diag-hint` e `.diag-cmd` para mostrar Python, `pyannote.audio` e modelo HuggingFace com erros acionaveis e comandos copiaveis.
 
 ---
 

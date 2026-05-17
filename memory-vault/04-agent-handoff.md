@@ -12,11 +12,12 @@
 
 O produto deve ser mais completo que um MVP visual. Mudancas devem manter a experiencia profissional e preservar a direcao local-first.
 
-O pipeline de IA atual e apenas transcricao (FFmpeg + Whisper). O resumo com LLM foi removido — nao reintroduza sem discussao de produto (ver ADR 0005).
+O pipeline de IA local atual e transcricao (FFmpeg + Whisper) com diarizacao opcional via Python/pyannote.audio. O resumo local com LLM foi removido — nao reintroduza sem discussao de produto (ver ADR 0005). Resumo externo existe apenas via OpenRouter opt-in.
 
 ## Areas sensiveis
 
 - `src-tauri/src/lib.rs`: persistencia e execucao de processos externos. Inclui pipeline OAuth (porta 8765, tokens YouTube) e upload em chunks.
+- `scripts/diarize.py`: subprocesso Python opcional para diarizacao; deve continuar local-first e com mensagens de erro acionaveis.
 - `src/App.tsx`: estado amplo em um unico componente. Priorize reduzir crescimento extraindo componentes React quando houver novo fluxo visual ou JSX extenso.
 - `src/components/`: componentes globais/reutilizaveis. Novos componentes devem ter props explicitas, tipos TypeScript e nao devem chamar Tauri diretamente quando o container puder receber callbacks.
   - **Excecao:** `IntegrationsView` chama `invoke` diretamente — esse e o padrao aprovado para esse componente especificamente, pois seu estado de credenciais e local e o fluxo OAuth e atomico.
@@ -54,3 +55,5 @@ npm run tauri:build
 ## Cuidado com ambiente local
 
 Ferramentas e modelos em `tools/` e `models/` podem ser grandes. Eles existem para a maquina local do usuario, mas nao devem ser tratados como dependencias leves de codigo. O diretorio `tools/llama.cpp/` e o modelo `models/llm/` foram removidos e nao existem mais no projeto.
+
+Dependencias Python de diarizacao sao configuracao local do usuario. Use `python -m pip install -U pyannote.audio` e instale `torch`, `torchaudio` e `torchcodec` pelo indice CPU do PyTorch separadamente.

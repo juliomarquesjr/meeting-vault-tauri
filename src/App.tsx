@@ -36,7 +36,8 @@ import {
   Trash2,
   Video,
   Workflow,
-  X
+  X,
+  Zap
 } from "lucide-react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -45,7 +46,7 @@ import ReactMarkdown from "react-markdown";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { YoutubeUploadDialog } from "./components/YoutubeUploadDialog";
-import type { FinalizeRecordingInput, Meeting, ProcessingProgress, Settings } from "./types";
+import type { DiarizationCheckResult, FinalizeRecordingInput, Meeting, ProcessingProgress, Settings, TranscriptSegment } from "./types";
 
 type View = "dashboard" | "library" | "taxonomy" | "settings" | "summary" | "video" | "integrations";
 type ContentModal = "transcript" | "summary" | null;
@@ -78,10 +79,23 @@ const defaultSettings: Settings = {
   autoTranscribe: false,
   youtubeClientId: "",
   youtubeClientSecret: "",
-  enableMeetDetection: true
+  enableMeetDetection: true,
+  enableDiarization: false,
+  diarizationNumSpeakers: 0,
+  pythonPath: "python",
+  diarizationScriptPath: "",
+  huggingfaceToken: ""
 };
 
 const defaultCategories = ["Cliente", "Interna", "Produto", "Comercial", "Treinamento", "Suporte"];
+
+const formatPythonModuleCommand = (pythonPath: string, moduleArgs: string) => {
+  const executable = pythonPath.trim() || "python";
+  const isSimpleLauncher = /^(python|py)(\.exe)?$/i.test(executable);
+  const escapedExecutable = executable.replace(/"/g, '\\"');
+  const commandPrefix = isSimpleLauncher ? executable : `& "${escapedExecutable}"`;
+  return `${commandPrefix} -m ${moduleArgs}`;
+};
 
 const viewMeta: Record<View, { eyebrow: string; title: string; subtitle: string }> = {
   dashboard: {
@@ -249,6 +263,66 @@ function recorderOptions(settings: Settings): MediaRecorderOptions {
   };
 }
 
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const s = Math.floor(seconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function TranscriptSegmentedView({ segments }: { segments: TranscriptSegment[] }) {
+  return (
+    <div className="transcript-segmented">
+      {segments.map((seg, i) => (
+        <div key={i} className={`transcript-segment speaker-${seg.speaker.toLowerCase()}`}>
+          <span className="transcript-segment__label">Falante {seg.speaker}</span>
+          <span className="transcript-segment__time">{formatTime(seg.start)}</span>
+          <p className="transcript-segment__text">{seg.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SegmentedControl({ value, onChange, options }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div className="seg-control">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          className={`seg-btn${value === opt.value ? " seg-btn--active" : ""}`}
+          onClick={() => onChange(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label, className }: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`toggle-row${className ? " " + className : ""}`}
+      onClick={() => onChange(!checked)}
+    >
+      <span className={`sw${checked ? " sw--on" : ""}`} aria-hidden="true">
+        <span className="sw-thumb" />
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -283,6 +357,9 @@ function App() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [isDeletingMeeting, setIsDeletingMeeting] = useState(false);
   const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [diarizationCheck, setDiarizationCheck] = useState<DiarizationCheckResult | null>(null);
+  const [checkingDiarization, setCheckingDiarization] = useState(false);
+  const [downloadingModel, setDownloadingModel] = useState(false);
   const [youtubeUploadOpen, setYoutubeUploadOpen] = useState(false);
   const [isUploadingToYoutube, setIsUploadingToYoutube] = useState(false);
   const [deleteLocalConfirmOpen, setDeleteLocalConfirmOpen] = useState(false);
@@ -363,6 +440,52 @@ function App() {
     setSettings(merged);
     setSettingsDraft(merged);
   }, []);
+
+  const checkDiarization = useCallback(async (pythonPath: string) => {
+    setCheckingDiarization(true);
+    try {
+      const result = await invoke<DiarizationCheckResult>("check_diarization_setup", { pythonPath });
+      setDiarizationCheck(result);
+    } finally {
+      setCheckingDiarization(false);
+    }
+  }, []);
+
+  const downloadDiarizationModel = useCallback(async () => {
+    setDownloadingModel(true);
+    try {
+      await invoke("download_diarization_model", {
+        pythonPath: settings.pythonPath,
+        token: settings.huggingfaceToken,
+      });
+      await checkDiarization(settings.pythonPath);
+    } catch (e) {
+      setDiarizationCheck((prev) => prev ? { ...prev, modelOk: false } : prev);
+    } finally {
+      setDownloadingModel(false);
+    }
+  }, [settings.pythonPath, settings.huggingfaceToken, checkDiarization]);
+
+  const [autoConfiguring, setAutoConfiguring] = useState(false);
+  const autoConfigureDiarization = useCallback(async () => {
+    setAutoConfiguring(true);
+    try {
+      const result = await invoke<{ pythonPath: string; scriptPath: string }>("auto_configure_diarization");
+      setSettings((prev) => ({
+        ...prev,
+        pythonPath: result.pythonPath,
+        diarizationScriptPath: result.scriptPath,
+      }));
+      setSettingsDraft((prev) => ({
+        ...prev,
+        pythonPath: result.pythonPath,
+        diarizationScriptPath: result.scriptPath,
+      }));
+      await checkDiarization(result.pythonPath);
+    } finally {
+      setAutoConfiguring(false);
+    }
+  }, [checkDiarization]);
 
   const transcribeMeeting = useCallback(
     async (meeting: Meeting) => {
@@ -745,6 +868,14 @@ function App() {
   }, [refreshMeetings, refreshSettings]);
 
   useEffect(() => {
+    if (settings.enableDiarization) {
+      void checkDiarization(settings.pythonPath);
+    } else {
+      setDiarizationCheck(null);
+    }
+  }, [settings.enableDiarization, settings.pythonPath, checkDiarization]);
+
+  useEffect(() => {
     const unlisten = Promise.all([
       listen("tray-start-recording", () => {
         startRecording().catch((error) => setNotice(String(error)));
@@ -824,6 +955,120 @@ function App() {
       </button>
     </div>
   );
+
+  const renderDiarizationSetupCard = () => {
+    const allOk = diarizationCheck?.pythonOk && diarizationCheck?.pyannoteOk && diarizationCheck?.modelOk;
+    const pyannoteInstallCommand = formatPythonModuleCommand(settings.pythonPath, "pip install -U pyannote.audio");
+    const pytorchRepairCommand = formatPythonModuleCommand(
+      settings.pythonPath,
+      "pip install -U --force-reinstall torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cpu"
+    );
+    if (!settings.enableDiarization || (!checkingDiarization && !diarizationCheck)) return null;
+
+    return (
+      <section className="dashboard-frame diag-card">
+        <div className="panel-heading">
+          <div>
+            <span>Diarizacao</span>
+            <h2>Configuracao de falantes</h2>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="primary-button compact"
+              onClick={() => void autoConfigureDiarization()}
+              disabled={autoConfiguring || checkingDiarization}
+            >
+              {autoConfiguring ? <Loader2 size={13} className="spin" /> : <Zap size={13} />}
+              {autoConfiguring ? "Configurando..." : "Configurar automaticamente"}
+            </button>
+            <button
+              className="secondary-button compact"
+              onClick={() => void checkDiarization(settings.pythonPath)}
+              disabled={checkingDiarization}
+            >
+              {checkingDiarization ? <Loader2 size={13} className="spin" /> : <RefreshCcw size={13} />}
+              {checkingDiarization ? "Verificando..." : "Verificar"}
+            </button>
+          </div>
+        </div>
+
+        {checkingDiarization && !diarizationCheck ? (
+          <div className="diag-loading">Verificando dependencias...</div>
+        ) : diarizationCheck && (
+          <div className="diag-list">
+            {/* Python */}
+            <div className={`diag-item ${diarizationCheck.pythonOk ? "ok" : "fail"}`}>
+              <span className="diag-icon">{diarizationCheck.pythonOk ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}</span>
+              <div className="diag-body">
+                <strong>Python</strong>
+                {diarizationCheck.pythonOk
+                  ? <em>{diarizationCheck.pythonVersion}</em>
+                  : (<>
+                      <em>Nao encontrado no caminho "{settings.pythonPath}"</em>
+                      {diarizationCheck.pythonError && <span className="diag-hint">Detalhe: {diarizationCheck.pythonError}</span>}
+                      <span className="diag-hint">Instale Python 3.10+ em <strong>python.org</strong> e configure o caminho em Configuracoes → Video.</span>
+                    </>)}
+              </div>
+            </div>
+
+            {/* pyannote.audio */}
+            <div className={`diag-item ${diarizationCheck.pyannoteOk ? "ok" : diarizationCheck.pythonOk ? "fail" : "disabled"}`}>
+              <span className="diag-icon">{diarizationCheck.pyannoteOk ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}</span>
+              <div className="diag-body">
+                <strong>pyannote.audio</strong>
+                {diarizationCheck.pyannoteOk
+                  ? <em>v{diarizationCheck.pyannoteVersion}</em>
+                  : diarizationCheck.pythonOk && (<>
+                      <em>Nao instalado ou falhou ao carregar</em>
+                      {diarizationCheck.pyannoteError && <span className="diag-hint">Detalhe: {diarizationCheck.pyannoteError}</span>}
+                      <code className="diag-cmd">{pyannoteInstallCommand}</code>
+                      <code className="diag-cmd">{pytorchRepairCommand}</code>
+                    </>)}
+              </div>
+            </div>
+
+            {/* Modelo HuggingFace */}
+            <div className={`diag-item ${diarizationCheck.modelOk ? "ok" : diarizationCheck.pyannoteOk ? "fail" : "disabled"}`}>
+              <span className="diag-icon">{diarizationCheck.modelOk ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}</span>
+              <div className="diag-body">
+                <strong>Modelo pyannote/speaker-diarization-3.1</strong>
+                {diarizationCheck.modelOk
+                  ? <em>Cache local OK</em>
+                  : diarizationCheck.pyannoteOk && (<>
+                      <em>Nao baixado</em>
+                      {diarizationCheck.modelError && <span className="diag-hint">Detalhe: {diarizationCheck.modelError}</span>}
+                      <span className="diag-hint">
+                        Aceite os termos em <strong>hf.co/pyannote/speaker-diarization-3.1</strong>,
+                        obtenha um token em <strong>hf.co/settings/tokens</strong> e configure em Configuracoes → Video → Diarizacao.
+                      </span>
+                      {settings.huggingfaceToken ? (
+                        <button
+                          className="primary-button compact"
+                          onClick={() => void downloadDiarizationModel()}
+                          disabled={downloadingModel}
+                        >
+                          {downloadingModel ? <Loader2 size={13} className="spin" /> : null}
+                          {downloadingModel ? "Baixando (~800 MB)..." : "Baixar modelo agora"}
+                        </button>
+                      ) : (
+                        <button className="secondary-button compact" onClick={() => setView("video")}>
+                          Configurar token →
+                        </button>
+                      )}
+                    </>)}
+              </div>
+            </div>
+
+            {allOk && (
+              <div className="diag-all-ok">
+                <CheckCircle2 size={14} /> Tudo configurado — diarizacao pronta para uso.
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  };
 
   const renderDashboard = () => (
     <div className="dashboard-view">
@@ -1097,6 +1342,8 @@ function App() {
             {!tags.length && <span>sem tags cadastradas</span>}
           </div>
         </section>
+
+        {renderDiarizationSetupCard()}
       </div>
     </div>
   );
@@ -1560,27 +1807,27 @@ function App() {
         <div className="settings-grid">
           <label>
             <span>Modo de processamento</span>
-            <select
+            <SegmentedControl
               value={settingsDraft.processingMode}
-              onChange={(event) =>
-                setSettingsDraft((current) => ({ ...current, processingMode: event.target.value }))
-              }
-            >
-              <option value="local">Local/offline</option>
-              <option value="api">API</option>
-              <option value="hybrid">Hibrido: local com fallback API</option>
-            </select>
+              onChange={(v) => setSettingsDraft((s) => ({ ...s, processingMode: v }))}
+              options={[
+                { value: "local", label: "Local/offline" },
+                { value: "api", label: "API" },
+                { value: "hybrid", label: "Hibrido" },
+              ]}
+            />
           </label>
           <label>
             <span>Idioma</span>
-            <select
+            <SegmentedControl
               value={settingsDraft.language}
-              onChange={(event) => setSettingsDraft((current) => ({ ...current, language: event.target.value }))}
-            >
-              <option value="pt">Portugues</option>
-              <option value="en">Ingles</option>
-              <option value="es">Espanhol</option>
-            </select>
+              onChange={(v) => setSettingsDraft((s) => ({ ...s, language: v }))}
+              options={[
+                { value: "pt", label: "Portugues" },
+                { value: "en", label: "Ingles" },
+                { value: "es", label: "Espanhol" },
+              ]}
+            />
           </label>
           <label>
             <span>FFmpeg</span>
@@ -1639,16 +1886,11 @@ function App() {
               placeholder="Opcional para modo API ou fallback hibrido"
             />
           </label>
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={settingsDraft.autoTranscribe}
-              onChange={(event) =>
-                setSettingsDraft((current) => ({ ...current, autoTranscribe: event.target.checked }))
-              }
-            />
-            <span>Transcrever automaticamente apos gravar</span>
-          </label>
+          <Toggle
+            checked={settingsDraft.autoTranscribe}
+            onChange={(v) => setSettingsDraft((s) => ({ ...s, autoTranscribe: v }))}
+            label="Transcrever automaticamente apos gravar"
+          />
         </div>
       </section>
     </div>
@@ -1669,15 +1911,14 @@ function App() {
         <div className="settings-grid">
           <label>
             <span>Resumo de transcricoes</span>
-            <select
+            <SegmentedControl
               value={settingsDraft.summaryMode}
-              onChange={(event) =>
-                setSettingsDraft((current) => ({ ...current, summaryMode: event.target.value }))
-              }
-            >
-              <option value="disabled">Desativado</option>
-              <option value="openrouter">OpenRouter</option>
-            </select>
+              onChange={(v) => setSettingsDraft((s) => ({ ...s, summaryMode: v }))}
+              options={[
+                { value: "disabled", label: "Desativado" },
+                { value: "openrouter", label: "OpenRouter" },
+              ]}
+            />
           </label>
           <label>
             <span>Modelo OpenRouter</span>
@@ -1720,40 +1961,35 @@ function App() {
         <div className="settings-grid">
           <label>
             <span>Extensao do arquivo</span>
-            <select
+            <SegmentedControl
               value={settingsDraft.videoFileExtension}
-              onChange={(event) =>
-                setSettingsDraft((current) => ({ ...current, videoFileExtension: event.target.value }))
-              }
-            >
-              <option value="webm">WEBM nativo</option>
-              <option value="mkv">MKV pos-processamento</option>
-              <option value="mp4">MP4 pos-processamento</option>
-            </select>
+              onChange={(v) => setSettingsDraft((s) => ({ ...s, videoFileExtension: v }))}
+              options={[
+                { value: "webm", label: "WEBM" },
+                { value: "mkv", label: "MKV" },
+                { value: "mp4", label: "MP4" },
+              ]}
+            />
           </label>
           <label>
             <span>Perfil de qualidade</span>
-            <select
+            <SegmentedControl
               value={settingsDraft.qualityPreset}
-              onChange={(event) => updateQualityPreset(event.target.value)}
-            >
-              {Object.entries(qualityPresets).map(([key, preset]) => (
-                <option key={key} value={key}>
-                  {preset.label}
-                </option>
-              ))}
-            </select>
+              onChange={updateQualityPreset}
+              options={Object.entries(qualityPresets).map(([key, preset]) => ({ value: key, label: preset.label }))}
+            />
           </label>
           <label>
             <span>Resolucao maxima</span>
-            <select
+            <SegmentedControl
               value={settingsDraft.resolution}
-              onChange={(event) => setSettingsDraft((current) => ({ ...current, resolution: event.target.value }))}
-            >
-              <option value="720p">720p</option>
-              <option value="1080p">1080p</option>
-              <option value="1440p">1440p</option>
-            </select>
+              onChange={(v) => setSettingsDraft((s) => ({ ...s, resolution: v }))}
+              options={[
+                { value: "720p", label: "720p" },
+                { value: "1080p", label: "1080p" },
+                { value: "1440p", label: "1440p" },
+              ]}
+            />
           </label>
           <label>
             <span>Quadros por segundo</span>
@@ -1793,36 +2029,106 @@ function App() {
               }
             />
           </label>
-          <label className="toggle-row span-two">
-            <input
-              type="checkbox"
-              checked={settingsDraft.captureSystemAudio}
-              onChange={(event) =>
-                setSettingsDraft((current) => ({ ...current, captureSystemAudio: event.target.checked }))
-              }
-            />
-            <span>Capturar audio do sistema quando a fonte permitir</span>
-          </label>
-          <label className="toggle-row span-two">
-            <input
-              type="checkbox"
-              checked={settingsDraft.captureMicrophone}
-              onChange={(event) =>
-                setSettingsDraft((current) => ({ ...current, captureMicrophone: event.target.checked }))
-              }
-            />
-            <span>Capturar audio do microfone durante a gravacao</span>
-          </label>
-          <label className="toggle-row span-two">
-            <input
-              type="checkbox"
-              checked={settingsDraft.enableMeetDetection}
-              onChange={(event) =>
-                setSettingsDraft((current) => ({ ...current, enableMeetDetection: event.target.checked }))
-              }
-            />
-            <span>Detectar reunioes no Google Meet e sugerir gravacao</span>
-          </label>
+          <Toggle
+            checked={settingsDraft.captureSystemAudio}
+            onChange={(v) => setSettingsDraft((s) => ({ ...s, captureSystemAudio: v }))}
+            label="Capturar audio do sistema quando a fonte permitir"
+            className="span-two"
+          />
+          <Toggle
+            checked={settingsDraft.captureMicrophone}
+            onChange={(v) => setSettingsDraft((s) => ({ ...s, captureMicrophone: v }))}
+            label="Capturar audio do microfone durante a gravacao"
+            className="span-two"
+          />
+          <Toggle
+            checked={settingsDraft.enableMeetDetection}
+            onChange={(v) => setSettingsDraft((s) => ({ ...s, enableMeetDetection: v }))}
+            label="Detectar reunioes no Google Meet e sugerir gravacao"
+            className="span-two"
+          />
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h3>Diarizacao (Identificacao de Falantes)</h3>
+        <div className="settings-grid">
+          <Toggle
+            checked={settingsDraft.enableDiarization}
+            onChange={(v) => setSettingsDraft((s) => ({ ...s, enableDiarization: v }))}
+            label="Identificar falantes apos transcricao (requer Python + pyannote.audio)"
+            className="span-two"
+          />
+          {settingsDraft.enableDiarization && (<>
+            <div className="span-two diag-settings-bar">
+              <button
+                className="secondary-button compact"
+                onClick={() => void checkDiarization(settingsDraft.pythonPath)}
+                disabled={checkingDiarization}
+              >
+                {checkingDiarization ? <Loader2 size={13} className="spin" /> : <RefreshCcw size={13} />}
+                {checkingDiarization ? "Verificando..." : "Verificar instalacao"}
+              </button>
+              {diarizationCheck && (
+                <span className={`diag-summary ${diarizationCheck.pythonOk && diarizationCheck.pyannoteOk && diarizationCheck.modelOk ? "ok" : "fail"}`}>
+                  {diarizationCheck.pythonOk && diarizationCheck.pyannoteOk && diarizationCheck.modelOk
+                    ? "Tudo OK"
+                    : [
+                        !diarizationCheck.pythonOk && "Python",
+                        !diarizationCheck.pyannoteOk && "pyannote",
+                        !diarizationCheck.modelOk && "Modelo",
+                      ].filter(Boolean).join(", ") + " pendente(s)"}
+                </span>
+              )}
+            </div>
+            <label>
+              <span>Numero de falantes</span>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={settingsDraft.diarizationNumSpeakers}
+                onChange={(event) =>
+                  setSettingsDraft((current) => ({ ...current, diarizationNumSpeakers: Number(event.target.value) }))
+                }
+              />
+              <small>0 = detectar automaticamente</small>
+            </label>
+            <label>
+              <span>Caminho do Python</span>
+              <input
+                type="text"
+                value={settingsDraft.pythonPath}
+                placeholder="python"
+                onChange={(event) =>
+                  setSettingsDraft((current) => ({ ...current, pythonPath: event.target.value }))
+                }
+              />
+            </label>
+            <label className="span-two">
+              <span>Caminho do script diarize.py</span>
+              <input
+                type="text"
+                value={settingsDraft.diarizationScriptPath}
+                placeholder="C:\caminho\para\scripts\diarize.py"
+                onChange={(event) =>
+                  setSettingsDraft((current) => ({ ...current, diarizationScriptPath: event.target.value }))
+                }
+              />
+            </label>
+            <label className="span-two">
+              <span>Token HuggingFace (apenas para download inicial do modelo)</span>
+              <input
+                type="password"
+                value={settingsDraft.huggingfaceToken}
+                placeholder="hf_..."
+                onChange={(event) =>
+                  setSettingsDraft((current) => ({ ...current, huggingfaceToken: event.target.value }))
+                }
+              />
+              <small>Apos baixar o modelo com o token, ele fica em cache e o token nao e mais necessario.</small>
+            </label>
+          </>)}
         </div>
       </section>
     </div>
@@ -1866,8 +2172,12 @@ function App() {
               </button>
             </div>
           </header>
-          <div className={isTranscript ? "content-modal-text transcript-text" : "content-modal-text markdown-content"}>
-            {isTranscript ? content : <ReactMarkdown>{content}</ReactMarkdown>}
+          <div className={isTranscript ? "content-modal-text" : "content-modal-text markdown-content"}>
+            {isTranscript
+              ? selectedMeeting.transcriptSegments?.length
+                ? <TranscriptSegmentedView segments={selectedMeeting.transcriptSegments} />
+                : <div className="transcript-text">{content}</div>
+              : <ReactMarkdown>{content}</ReactMarkdown>}
           </div>
         </section>
       </div>

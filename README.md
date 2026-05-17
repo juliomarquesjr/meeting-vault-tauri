@@ -2,7 +2,7 @@
 
 Meeting Vault e um aplicativo desktop Windows para gravar reunioes, salvar o video localmente e transcrever o audio com privacidade.
 
-O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e whisper.cpp. Tambem existe modo API e modo hibrido para fallback quando uma chave da OpenAI estiver configurada. Resumos sao opcionais e usam OpenRouter quando o usuario configura uma chave propria.
+O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e whisper.cpp. Tambem existe modo API e modo hibrido para fallback quando uma chave da OpenAI estiver configurada. Diarizacao de falantes e opcional via Python/pyannote.audio. Resumos sao opcionais e usam OpenRouter quando o usuario configura uma chave propria.
 
 ## Stack
 
@@ -13,6 +13,7 @@ O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e w
 - Rust
 - FFmpeg para extracao de audio
 - whisper.cpp para transcricao local
+- Python + pyannote.audio para diarizacao opt-in
 
 ## Funcionalidades
 
@@ -26,6 +27,7 @@ O produto e local-first: o modo principal usa ferramentas locais como FFmpeg e w
 - Configuracoes de transcricao: modo local/API/hibrido, idioma, caminhos de ferramentas e modelo Whisper.
 - Progresso de transcricao em tempo real.
 - Transcricao exibida diretamente na biblioteca.
+- Diarizacao local opt-in com falantes A/B/C quando Python, pyannote.audio e modelo HuggingFace estiverem configurados.
 - Resumo sob demanda de transcricoes via OpenRouter, com modelo configuravel.
 
 ## Estrutura
@@ -90,6 +92,7 @@ O script baixa:
 - FFmpeg para `tools/ffmpeg/`.
 - `whisper-cli.exe` para `tools/whisper.cpp/`.
 - Modelo Whisper para `models/whisper/`.
+- Opcionalmente instala dependencias de diarizacao Python e baixa o modelo pyannote se `-HuggingFaceToken` for informado.
 
 Por padrao, o modelo baixado e `large-v3-turbo`. Para escolher outro:
 
@@ -146,6 +149,24 @@ models\whisper\ggml-large-v3-turbo.bin
 
 Modelos Whisper maiores podem exigir mais memoria e tempo de CPU. Para maquinas modestas, prefira `small` ou `medium` no script de bootstrap.
 
+## Diarizacao local
+
+No menu Sistema > Video e qualidade, habilite "Identificar falantes apos transcricao" e configure:
+
+- Caminho do Python.
+- Caminho de `scripts\diarize.py`.
+- Numero de falantes, ou `0` para detectar automaticamente.
+- Token HuggingFace apenas para o download inicial do modelo.
+
+Instalacao manual recomendada no mesmo Python configurado no app:
+
+```powershell
+python -m pip install -U pyannote.audio
+python -m pip install -U --force-reinstall torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cpu
+```
+
+O modelo `pyannote/speaker-diarization-3.1` exige aceite dos termos no HuggingFace. Depois do download, o app usa o cache local e o token nao e necessario em runtime.
+
 ## Resumo com OpenRouter
 
 No menu Sistema > Resumo, escolha:
@@ -171,4 +192,5 @@ O app envia apenas o texto da transcricao para `https://openrouter.ai/api/v1/cha
 - Exportacao de transcricao em Markdown/TXT.
 - Migracao de `store.json` para SQLite.
 - Refinamento de prompts e avaliacao de qualidade dos resumos OpenRouter.
+- Renomeacao manual de falantes apos diarizacao.
 - Integracoes com calendario, Notion/Obsidian, Slack/Teams e CRM.

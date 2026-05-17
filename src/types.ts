@@ -1,5 +1,12 @@
 export type MeetingStatus = "recorded" | "processing" | "completed" | "error";
 
+export interface TranscriptSegment {
+  speaker: string;
+  text: string;
+  start: number;
+  end: number;
+}
+
 export interface Meeting {
   id: string;
   title: string;
@@ -19,6 +26,7 @@ export interface Meeting {
   error: string;
   youtubeVideoId: string;
   youtubeUrl: string;
+  transcriptSegments?: TranscriptSegment[];
 }
 
 export interface ProcessingProgress {
@@ -52,6 +60,11 @@ export interface Settings {
   youtubeClientId: string;
   youtubeClientSecret: string;
   enableMeetDetection: boolean;
+  enableDiarization: boolean;
+  diarizationNumSpeakers: number;
+  pythonPath: string;
+  diarizationScriptPath: string;
+  huggingfaceToken: string;
 }
 
 export interface SaveRecordingInput {
@@ -63,6 +76,17 @@ export interface SaveRecordingInput {
   mimeType: string;
   fileExtension: string;
   bytes: number[];
+}
+
+export interface DiarizationCheckResult {
+  pythonOk: boolean;
+  pythonVersion: string;
+  pythonError: string;
+  pyannoteOk: boolean;
+  pyannoteVersion: string;
+  pyannoteError: string;
+  modelOk: boolean;
+  modelError: string;
 }
 
 export interface FinalizeRecordingInput {

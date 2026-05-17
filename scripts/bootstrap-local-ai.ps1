@@ -6,6 +6,8 @@ param(
     [switch]$SkipFfmpeg,
     [switch]$SkipWhisperCli,
     [switch]$SkipWhisperModel,
+    [switch]$SkipDiarization,
+    [string]$HuggingFaceToken = "",
     [switch]$Force
 )
 
@@ -108,6 +110,42 @@ if (-not $SkipWhisperModel) {
 $ffmpegPath = Get-ChildItem -Path $FfmpegDir -Recurse -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
 $whisperCliPath = Get-ChildItem -Path $WhisperCliDir -Recurse -Filter "whisper-cli.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
 $selectedModelPath = Join-Path $WhisperModelDir "ggml-$WhisperModel.bin"
+
+# ─── OPCIONAL: Diarização (identificação de falantes) ─────────────────────────
+if (-not $SkipDiarization) {
+    Write-Host ""
+    Write-Host "[Diarizacao] Verificando Python..."
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pythonCmd) {
+        Write-Host "  Python nao encontrado. Instale Python 3.10+ e execute novamente para configurar diarizacao." -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "  Python encontrado: $($pythonCmd.Source)"
+        Write-Host "  Instalando pyannote.audio..."
+        & python -m pip install -U pyannote.audio --quiet
+
+        Write-Host "  Instalando dependencias PyTorch CPU (~2 GB no total)..."
+        & python -m pip install -U --force-reinstall torch torchaudio torchcodec --index-url https://download.pytorch.org/whl/cpu --quiet
+
+        if ($HuggingFaceToken) {
+            Write-Host "  Baixando modelo pyannote/speaker-diarization-3.1..."
+            Write-Host "  (Certifique-se de aceitar os termos em https://hf.co/pyannote/speaker-diarization-3.1)" -ForegroundColor Cyan
+            & python -c "from pyannote.audio import Pipeline; Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', use_auth_token='$HuggingFaceToken')"
+            Write-Host "  Modelo salvo em cache local. Token nao sera necessario em runtime." -ForegroundColor Green
+        }
+        else {
+            Write-Host "  Token HuggingFace nao fornecido. Forneca -HuggingFaceToken hf_... para baixar o modelo agora." -ForegroundColor Yellow
+            Write-Host "  Ou configure o token em Settings -> Diarizacao apos instalar o app." -ForegroundColor Yellow
+        }
+
+        $diarizeScriptPath = Join-Path $ScriptDir "diarize.py"
+        Write-Host ""
+        Write-Host "  Script de diarizacao: $diarizeScriptPath"
+        Write-Host "  Configure em Settings -> Diarizacao:"
+        Write-Host "    Caminho do Python:     $($pythonCmd.Source)"
+        Write-Host "    Caminho do diarize.py: $diarizeScriptPath"
+    }
+}
 
 Write-Host ""
 Write-Host "Concluido. Configure estes caminhos no app:"

@@ -33,10 +33,13 @@
 6. Gravacao inicia com `getDisplayMedia` + `getUserMedia` (se habilitado); streams mixados via `AudioContext`; `begin_recording_session` abre arquivo `.tmp`.
 7. Chunks enviados com `append_recording_chunk` a cada segundo; `finalize_recording_session` fecha e renomeia o arquivo `.tmp`.
 8. Rust grava video em `recordings/` e metadados em `store.json`.
-9. Processamento atualiza `Meeting` e emite `processing-progress`.
-10. React reflete progresso e resultado.
-11. Resumo OpenRouter, quando acionado, usa a transcricao existente e salva `summary`.
-12. Upload YouTube: `upload_to_youtube` faz upload em chunks de 8 MB via Resumable Upload API, emite `processing-progress` e salva `youtubeUrl` na reuniao.
+9. Transcricao: whisper-cli com `-oj` gera JSON com timestamps por segmento; texto extraido e salvo em `transcript`.
+10. Se diarizacao habilitada: `scripts/diarize.py` recebe audio.wav + transcript.json → chama pyannote → merge por sobreposicao de timestamps → `transcriptSegments` salvo no Meeting.
+11. Diagnostico de diarizacao (`check_diarization_setup`) separa Python, `pyannote.audio` e modelo HuggingFace, retornando detalhes de erro para a UI.
+12. Processamento atualiza `Meeting` e emite `processing-progress`.
+13. React reflete progresso e resultado.
+14. Resumo OpenRouter, quando acionado, usa a transcricao existente e salva `summary`.
+15. Upload YouTube: `upload_to_youtube` faz upload em chunks de 8 MB via Resumable Upload API, emite `processing-progress` e salva `youtubeUrl` na reuniao.
 
 ## Comandos Tauri usados pela UI
 
@@ -50,6 +53,9 @@
 - `reveal_recording`
 - `transcribe_meeting`
 - `summarize_meeting`
+- `check_diarization_setup` — valida Python, `pyannote.audio` e cache local do modelo com detalhes de erro.
+- `download_diarization_model`
+- `auto_configure_diarization`
 
 **Gravacao em streaming (substituem `save_recording`):**
 - `begin_recording_session` — cria arquivo `.tmp` em `recordings/`
@@ -79,13 +85,15 @@
 
 ## Modelo de dados — Meeting
 
-Campos ativos: `id`, `title`, `createdAt`, `startedAt`, `category`, `tags`, `durationSeconds`, `sizeBytes`, `recordingPath`, `mimeType`, `transcript`, `summary`, `status`, `progressMessage`, `progressPercent`, `error`, `youtubeVideoId`, `youtubeUrl`.
+Campos ativos: `id`, `title`, `createdAt`, `startedAt`, `category`, `tags`, `durationSeconds`, `sizeBytes`, `recordingPath`, `mimeType`, `transcript`, `transcriptSegments`, `summary`, `status`, `progressMessage`, `progressPercent`, `error`, `youtubeVideoId`, `youtubeUrl`.
+
+`transcriptSegments`: `Vec<TranscriptSegment>` com `#[serde(default)]` — lista de `{speaker, text, start, end}` produzida pela diarizacao. Vazio em reunioes antigas ou sem diarizacao habilitada.
 
 Campos removidos (nao mais presentes nos tipos): `actionItems`, `decisions`. Dados antigos no `store.json` com esses campos sao ignorados silenciosamente.
 
 ## Modelo de dados — Settings
 
-Inclui todos os campos anteriores mais: `youtubeClientId`, `youtubeClientSecret`, `captureSystemAudio`, `captureMicrophone`, `enableMeetDetection`.
+Inclui todos os campos anteriores mais: `youtubeClientId`, `youtubeClientSecret`, `captureSystemAudio`, `captureMicrophone`, `enableMeetDetection`, `enableDiarization`, `diarizationNumSpeakers`, `pythonPath`, `diarizationScriptPath`, `huggingfaceToken`.
 
 ## Modelo de dados — Store
 

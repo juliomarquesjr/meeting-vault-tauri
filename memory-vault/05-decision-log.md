@@ -12,7 +12,8 @@
 - [[../docs/adr/0008-youtube-oauth-integration|ADR 0008]]: integracao YouTube via OAuth 2.0 Installed App + Resumable Upload API (2026-05-15).
 - [[../docs/adr/0009-google-meet-detection|ADR 0009]]: deteccao automatica de Google Meet via polling de titulo de janela Win32 (`EnumWindows`) + popup Tauri always-on-top (2026-05-16).
 - [[../docs/adr/0010-microphone-capture-mix|ADR 0010]]: captura de microfone via `getUserMedia` com mixagem `AudioContext` junto ao audio do sistema (2026-05-16).
-- Bootstrap local: `tools/` e `models/` ficam fora do Git; `scripts/bootstrap-local-ai.ps1` baixa FFmpeg, whisper.cpp e modelo Whisper para uma maquina nova.
+- [[../docs/adr/0011-speaker-diarization|ADR 0011]]: diarizacao local opt-in via pyannote.audio Python + whisper.cpp -oj; transcript segmentado por falante e diagnostico separado de Python/pyannote/modelo (2026-05-16).
+- Bootstrap local: `tools/` e `models/` ficam fora do Git; `scripts/bootstrap-local-ai.ps1` baixa FFmpeg, whisper.cpp, modelo Whisper e opcionalmente prepara diarizacao Python para uma maquina nova.
 
 ## Decisoes pendentes
 

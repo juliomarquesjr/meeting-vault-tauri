@@ -47,6 +47,21 @@ struct Meeting {
     youtube_video_id: String,
     #[serde(default)]
     youtube_url: String,
+    #[serde(default)]
+    transcript_segments: Vec<TranscriptSegment>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiarizationCheckResult {
+    python_ok: bool,
+    python_version: String,
+    python_error: String,
+    pyannote_ok: bool,
+    pyannote_version: String,
+    pyannote_error: String,
+    model_ok: bool,
+    model_error: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,6 +117,16 @@ struct Settings {
     youtube_client_secret: String,
     #[serde(default = "default_true")]
     enable_meet_detection: bool,
+    #[serde(default)]
+    enable_diarization: bool,
+    #[serde(default)]
+    diarization_num_speakers: u8,
+    #[serde(default = "default_python_path")]
+    python_path: String,
+    #[serde(default)]
+    diarization_script_path: String,
+    #[serde(default)]
+    huggingface_token: String,
 }
 
 impl Default for Settings {
@@ -129,8 +154,22 @@ impl Default for Settings {
             youtube_client_id: String::new(),
             youtube_client_secret: String::new(),
             enable_meet_detection: true,
+            enable_diarization: false,
+            diarization_num_speakers: 0,
+            python_path: default_python_path(),
+            diarization_script_path: String::new(),
+            huggingface_token: String::new(),
         }
     }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscriptSegment {
+    speaker: String,
+    text: String,
+    start: f64,
+    end: f64,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -194,6 +233,10 @@ fn default_audio_bits_per_second() -> u32 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_python_path() -> String {
+    "python".into()
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -284,6 +327,7 @@ fn save_recording(
         error: String::new(),
         youtube_video_id: String::new(),
         youtube_url: String::new(),
+        transcript_segments: Vec::new(),
     };
 
     let mut store = state.store.lock().map_err(|error| error.to_string())?;
@@ -359,6 +403,7 @@ fn finalize_recording_session(
         error: String::new(),
         youtube_video_id: String::new(),
         youtube_url: String::new(),
+        transcript_segments: Vec::new(),
     };
 
     let mut store = state.store.lock().map_err(|e| e.to_string())?;
@@ -448,17 +493,41 @@ async fn connect_youtube(
          &prompt=consent"
     );
 
+    // Unblock any lingering listener from a previous failed attempt so port 8765 is freed
+    {
+        use std::net::TcpStream;
+        let _ = TcpStream::connect_timeout(
+            &"127.0.0.1:8765".parse::<std::net::SocketAddr>().unwrap(),
+            std::time::Duration::from_millis(100),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
     // Start local HTTP server to capture OAuth callback
     let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader, Write};
         use std::net::TcpListener;
 
-        let listener = match TcpListener::bind("127.0.0.1:8765") {
-            Ok(l) => l,
-            Err(e) => {
-                let _ = tx.send(Err(format!("Falha ao abrir servidor local: {e}")));
-                return;
+        // Retry bind in case the old thread is still releasing the port
+        let listener = {
+            let mut last_err = String::new();
+            let mut bound = None;
+            for _ in 0..6 {
+                match TcpListener::bind("127.0.0.1:8765") {
+                    Ok(l) => { bound = Some(l); break; }
+                    Err(e) => {
+                        last_err = e.to_string();
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                    }
+                }
+            }
+            match bound {
+                Some(l) => l,
+                None => {
+                    let _ = tx.send(Err(format!("Falha ao abrir servidor local: {last_err}")));
+                    return;
+                }
             }
         };
 
@@ -495,9 +564,9 @@ async fn connect_youtube(
         }
     });
 
-    // Open browser
-    Command::new("cmd")
-        .args(["/c", "start", "", &auth_url])
+    // Open browser — cmd /c start splits URL on '&'; rundll32 avoids shell interpretation
+    Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &auth_url])
         .spawn()
         .map_err(|e| format!("Falha ao abrir o navegador: {e}"))?;
 
@@ -523,9 +592,15 @@ async fn connect_youtube(
         .map_err(|e| format!("Falha ao trocar token: {e}"))?;
 
     let body: Value = response.json().await.map_err(|e| e.to_string())?;
+
+    if let Some(err) = body["error"].as_str() {
+        let desc = body["error_description"].as_str().unwrap_or("");
+        return Err(format!("Erro OAuth do Google: {err} — {desc}"));
+    }
+
     let access_token = body["access_token"]
         .as_str()
-        .ok_or("Token de acesso ausente na resposta.")?
+        .ok_or_else(|| format!("Token de acesso ausente. Resposta: {body}"))?
         .to_string();
     let refresh_token = body["refresh_token"]
         .as_str()
@@ -855,30 +930,41 @@ async fn transcribe_meeting(
     };
     update_meeting_progress(&app, &state, &id, "Preparando processamento", 2, "processing")?;
 
-    let result = match settings.processing_mode.as_str() {
-        "local" => run_local_pipeline(&app, &state, &meeting, &settings),
-        "hybrid" => match run_local_pipeline(&app, &state, &meeting, &settings) {
-            Ok(transcript) => Ok(transcript),
-            Err(local_error) => {
-                if settings.api_key.trim().is_empty() {
-                    Err(format!(
-                        "Processamento local falhou e a API nao esta configurada: {local_error}"
-                    ))
-                } else {
-                    update_meeting_progress(&app, &state, &id, "Fallback para API", 12, "processing")?;
-                    run_api_pipeline(&app, &state, &meeting, &settings)
-                        .await
-                        .map_err(|api_error| {
-                            format!("Local falhou: {local_error}. API falhou: {api_error}")
-                        })
+    let result: Result<(String, Vec<TranscriptSegment>), String> =
+        match settings.processing_mode.as_str() {
+            "local" => run_local_pipeline(&app, &state, &meeting, &settings),
+            "hybrid" => match run_local_pipeline(&app, &state, &meeting, &settings) {
+                Ok(pair) => Ok(pair),
+                Err(local_error) => {
+                    if settings.api_key.trim().is_empty() {
+                        Err(format!(
+                            "Processamento local falhou e a API nao esta configurada: {local_error}"
+                        ))
+                    } else {
+                        update_meeting_progress(
+                            &app,
+                            &state,
+                            &id,
+                            "Fallback para API",
+                            12,
+                            "processing",
+                        )?;
+                        run_api_pipeline(&app, &state, &meeting, &settings)
+                            .await
+                            .map(|t| (t, vec![]))
+                            .map_err(|api_error| {
+                                format!("Local falhou: {local_error}. API falhou: {api_error}")
+                            })
+                    }
                 }
-            }
-        },
-        _ => run_api_pipeline(&app, &state, &meeting, &settings).await,
-    };
+            },
+            _ => run_api_pipeline(&app, &state, &meeting, &settings)
+                .await
+                .map(|t| (t, vec![])),
+        };
 
-    let transcript = match result {
-        Ok(transcript) => transcript,
+    let (transcript, segments) = match result {
+        Ok(pair) => pair,
         Err(error) => {
             mark_meeting_error(&app, &state, &id, &error)?;
             return Err(error);
@@ -892,6 +978,7 @@ async fn transcribe_meeting(
         .find(|meeting| meeting.id == id)
         .ok_or_else(|| "Reuniao nao encontrada.".to_string())?;
     updated.transcript = transcript;
+    updated.transcript_segments = segments;
     updated.status = "completed".into();
     updated.progress_message = "Transcricao concluida".into();
     updated.progress_percent = 100;
@@ -985,7 +1072,7 @@ fn run_local_pipeline(
     state: &State<'_, AppState>,
     meeting: &Meeting,
     settings: &Settings,
-) -> Result<String, String> {
+) -> Result<(String, Vec<TranscriptSegment>), String> {
     update_meeting_progress(app, state, &meeting.id, "Validando configuracao local", 5, "processing")?;
     validate_local_settings(settings)?;
     let work_dir = processing_dir(app)?.join(&meeting.id);
@@ -996,10 +1083,30 @@ fn run_local_pipeline(
     extract_audio_with_ffmpeg(meeting, settings, &audio_path)?;
 
     update_meeting_progress(app, state, &meeting.id, "Transcrevendo com Whisper", 50, "processing")?;
-    let transcript = transcribe_with_whisper(settings, &audio_path, &work_dir)?;
+    let (transcript, json_path) = transcribe_with_whisper(settings, &audio_path, &work_dir)?;
+
+    let mut segments: Vec<TranscriptSegment> = Vec::new();
+    if settings.enable_diarization && !settings.diarization_script_path.trim().is_empty() {
+        update_meeting_progress(app, state, &meeting.id, "Identificando falantes", 80, "processing")?;
+        let seg_path = work_dir.join("diarization.json");
+        match run_diarization(settings, &audio_path, &json_path, &seg_path) {
+            Ok(segs) => segments = segs,
+            Err(e) => {
+                let _ = app.emit(
+                    "processing-progress",
+                    json!({
+                        "id": meeting.id,
+                        "message": format!("Diarizacao falhou (transcript salvo sem falantes): {e}"),
+                        "percent": 85,
+                        "status": "processing"
+                    }),
+                );
+            }
+        }
+    }
 
     let _ = fs::remove_dir_all(&work_dir);
-    Ok(transcript)
+    Ok((transcript, segments))
 }
 
 fn validate_local_settings(settings: &Settings) -> Result<(), String> {
@@ -1071,23 +1178,25 @@ fn transcribe_with_whisper(
     settings: &Settings,
     audio_path: &Path,
     work_dir: &Path,
-) -> Result<String, String> {
+) -> Result<(String, PathBuf), String> {
     let output_base = work_dir.join("transcript");
     let threads = settings.whisper_threads.max(1).to_string();
     let audio_path_string = audio_path.to_string_lossy().to_string();
     let output_base_string = output_base.to_string_lossy().to_string();
-    let output = Command::new(settings.whisper_cli_path.trim())
-        .arg("-m")
+    let mut cmd = Command::new(settings.whisper_cli_path.trim());
+    cmd.arg("-m")
         .arg(settings.whisper_model_path.trim())
         .arg("-f")
         .arg(audio_path_string)
-        .arg("-l")
-        .arg(settings.language.as_str())
         .arg("-t")
         .arg(threads)
-        .arg("-otxt")
+        .arg("-oj")
         .arg("-of")
-        .arg(output_base_string)
+        .arg(output_base_string);
+    if !settings.language.trim().is_empty() {
+        cmd.arg("-l").arg(settings.language.trim());
+    }
+    let output = cmd
         .output()
         .map_err(|error| format!("Falha ao executar whisper.cpp: {error}"))?;
 
@@ -1095,18 +1204,28 @@ fn transcribe_with_whisper(
         return Err(command_failure("whisper.cpp", &output));
     }
 
-    let transcript_path = output_base.with_extension("txt");
-    let transcript = if transcript_path.exists() {
-        fs::read_to_string(transcript_path).map_err(|error| error.to_string())?
+    let json_path = output_base.with_extension("json");
+    let transcript = if json_path.exists() {
+        let content = fs::read_to_string(&json_path).map_err(|e| e.to_string())?;
+        let data: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        data["transcription"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|seg| seg["text"].as_str())
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     } else {
-        String::from_utf8_lossy(&output.stdout).to_string()
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
     };
 
     let transcript = transcript.trim().to_string();
     if transcript.is_empty() {
         Err("A transcricao local retornou vazia.".to_string())
     } else {
-        Ok(transcript)
+        Ok((transcript, json_path))
     }
 }
 
@@ -1119,6 +1238,241 @@ fn command_failure(label: &str, output: &std::process::Output) -> String {
         format!("{label} falhou: {stdout}")
     } else {
         format!("{label} falhou sem detalhes.")
+    }
+}
+
+fn diagnostic_failure(label: &str, output: &std::process::Output) -> String {
+    const MAX_CHARS: usize = 1200;
+    let message = command_failure(label, output);
+    if message.chars().count() <= MAX_CHARS {
+        return message;
+    }
+
+    let mut truncated: String = message.chars().take(MAX_CHARS).collect();
+    truncated.push_str("\n... detalhes truncados");
+    truncated
+}
+
+fn run_diarization(
+    settings: &Settings,
+    audio_path: &Path,
+    whisper_json_path: &Path,
+    output_path: &Path,
+) -> Result<Vec<TranscriptSegment>, String> {
+    let mut cmd = Command::new(settings.python_path.trim());
+    cmd.arg(settings.diarization_script_path.trim())
+        .arg(audio_path)
+        .arg(whisper_json_path)
+        .arg(output_path);
+
+    if settings.diarization_num_speakers > 0 {
+        cmd.arg("--num-speakers")
+            .arg(settings.diarization_num_speakers.to_string());
+    }
+
+    let out = cmd
+        .output()
+        .map_err(|e| format!("Falha ao executar Python para diarizacao: {e}"))?;
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(format!("diarize.py falhou: {stderr}"));
+    }
+
+    let content = fs::read_to_string(output_path)
+        .map_err(|e| format!("Falha ao ler resultado da diarizacao: {e}"))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("JSON de diarizacao invalido: {e}"))
+}
+
+#[tauri::command]
+fn check_diarization_setup(python_path: String) -> DiarizationCheckResult {
+    let python = if python_path.trim().is_empty() {
+        "python"
+    } else {
+        python_path.trim()
+    };
+
+    // 1. Check Python availability
+    let (python_ok, python_version, python_error) = match Command::new(python).arg("--version").output() {
+        Ok(out) if out.status.success() => {
+            let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let v = if v.is_empty() {
+                String::from_utf8_lossy(&out.stderr).trim().to_string()
+            } else {
+                v
+            };
+            (true, v, String::new())
+        }
+        Ok(out) => {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let details = if msg.is_empty() {
+                "Nao encontrado".to_string()
+            } else {
+                msg
+            };
+            (false, String::new(), details)
+        }
+        Err(e) => (false, String::new(), format!("Nao encontrado: {e}")),
+    };
+
+    // 2. Check pyannote.audio installation
+    let (pyannote_ok, pyannote_version, pyannote_error) = if python_ok {
+        match Command::new(python)
+            .args(["-c", "import pyannote.audio; print(pyannote.audio.__version__)"])
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                (true, v, String::new())
+            }
+            Ok(out) => (false, String::new(), diagnostic_failure("pyannote.audio", &out)),
+            Err(e) => (false, String::new(), format!("pyannote.audio falhou: {e}")),
+        }
+    } else {
+        (false, String::new(), String::new())
+    };
+
+    // 3. Check if model is in local HuggingFace cache (no network call)
+    let (model_ok, model_error) = if pyannote_ok {
+        match Command::new(python)
+            .args([
+                "-c",
+                "from huggingface_hub import hf_hub_download; \
+                 hf_hub_download('pyannote/speaker-diarization-3.1', 'config.yaml', local_files_only=True)",
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => (true, String::new()),
+            Ok(out) => (false, diagnostic_failure("Modelo pyannote", &out)),
+            Err(e) => (false, format!("Modelo pyannote falhou: {e}")),
+        }
+    } else {
+        (false, String::new())
+    };
+
+    DiarizationCheckResult {
+        python_ok,
+        python_version,
+        python_error,
+        pyannote_ok,
+        pyannote_version,
+        pyannote_error,
+        model_ok,
+        model_error,
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AutoConfigureResult {
+    python_path: String,
+    script_path: String,
+}
+
+#[tauri::command]
+fn auto_configure_diarization(app: tauri::AppHandle) -> Result<AutoConfigureResult, String> {
+    // Find Python executable
+    #[cfg(target_os = "windows")]
+    let python_path = {
+        let out = Command::new("where").arg("python").output().ok();
+        out.and_then(|o| {
+            if o.status.success() {
+                let s = String::from_utf8_lossy(&o.stdout);
+                s.lines().next().map(|l| l.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "python".to_string())
+    };
+    #[cfg(not(target_os = "windows"))]
+    let python_path = {
+        let out = Command::new("which").arg("python3").output().ok();
+        out.and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "python3".to_string())
+    };
+
+    // Resolve diarize.py path relative to the app's resource directory or executable
+    let script_path = {
+        // Try resource dir first (for packaged app)
+        let resource_dir = app.path().resource_dir().ok();
+        let candidate_resource = resource_dir.map(|d| d.join("scripts").join("diarize.py"));
+
+        // Try executable dir (for dev mode)
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let candidate_exe = exe_dir.map(|d| {
+            // Walk up until we find a scripts/diarize.py
+            let mut dir = d.clone();
+            for _ in 0..5 {
+                let candidate = dir.join("scripts").join("diarize.py");
+                if candidate.exists() {
+                    return candidate;
+                }
+                if let Some(parent) = dir.parent() {
+                    dir = parent.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+            d.join("scripts").join("diarize.py")
+        });
+
+        if let Some(p) = candidate_resource.filter(|p| p.exists()) {
+            p.to_string_lossy().to_string()
+        } else if let Some(p) = candidate_exe.filter(|p| p.exists()) {
+            p.to_string_lossy().to_string()
+        } else {
+            String::new()
+        }
+    };
+
+    // Persist settings update
+    let state = app.state::<AppState>();
+    let mut store = state.store.lock().map_err(|e| e.to_string())?;
+    if store.settings.python_path.trim() == "python" || store.settings.python_path.trim().is_empty() {
+        store.settings.python_path = python_path.clone();
+    }
+    if store.settings.diarization_script_path.trim().is_empty() && !script_path.is_empty() {
+        store.settings.diarization_script_path = script_path.clone();
+    }
+    persist_store(&app, &store)?;
+
+    Ok(AutoConfigureResult { python_path, script_path })
+}
+
+#[tauri::command]
+async fn download_diarization_model(python_path: String, token: String) -> Result<(), String> {
+    let python = if python_path.trim().is_empty() {
+        "python".to_string()
+    } else {
+        python_path.trim().to_string()
+    };
+
+    let out = Command::new(&python)
+        .args([
+            "-c",
+            "import warnings; warnings.filterwarnings('ignore'); \
+             from pyannote.audio import Pipeline; import os; \
+             Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', \
+             token=os.environ['HF_TOKEN'])",
+        ])
+        .env("HF_TOKEN", token.trim())
+        .output()
+        .map_err(|e| format!("Falha ao executar Python: {e}"))?;
+
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(command_failure("Download do modelo pyannote", &out))
     }
 }
 
@@ -1819,7 +2173,10 @@ pub fn run() {
             start_meet_watcher,
             stop_meet_watcher,
             accept_meet_prompt,
-            dismiss_meet_prompt
+            dismiss_meet_prompt,
+            check_diarization_setup,
+            download_diarization_model,
+            auto_configure_diarization
         ])
         .run(tauri::generate_context!())
         .expect("error while running Meeting Vault");

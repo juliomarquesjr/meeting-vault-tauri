@@ -41,7 +41,7 @@
   --shadow:    0 8px 32px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
 
-  --control-height: 38px;
+  --control-height: 36px;
   --radius:         7px;
   --frame-gap:      16px;
   --frame-padding:  16px;
@@ -496,15 +496,15 @@ input[type="range"] {
 
 .secondary-button.compact {
   min-width: 0;
-  min-height: 32px;
+  min-height: 30px;
   padding: 0 10px;
   font-size: 12px;
 }
 
 /* Icon button */
 .icon-button {
-  width: 36px;
-  min-height: 36px;
+  width: var(--control-height);
+  min-height: var(--control-height);
   padding: 0;
   border: 1px solid var(--border);
   background: var(--surface-2);
@@ -1561,6 +1561,186 @@ input[type="range"] {
   overflow: auto;
 }
 
+/* ─── Diagnóstico de Diarização ──────────────────────────────────────────── */
+.diag-card {
+  grid-column: 1 / -1;
+}
+
+.diag-loading {
+  padding: 12px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.diag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 4px 8px;
+}
+
+.diag-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.diag-item.ok { background: rgba(16, 185, 129, 0.06); }
+.diag-item.fail { background: rgba(239, 68, 68, 0.06); }
+.diag-item.disabled { opacity: 0.45; }
+
+.diag-icon {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 1px;
+  flex-shrink: 0;
+}
+
+.diag-item.ok .diag-icon { color: #10b981; }
+.diag-item.fail .diag-icon { color: #ef4444; }
+
+.diag-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.diag-body strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.diag-body em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.diag-hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.diag-cmd {
+  display: block;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 11px;
+  background: var(--surface-3, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--purple-400, #c084fc);
+  overflow-x: auto;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.diag-all-ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #10b981;
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+.diag-settings-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 8px;
+}
+
+.diag-summary {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.diag-summary.ok { color: #10b981; }
+.diag-summary.fail { color: #ef4444; }
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Transcript Segmentado por Falante ──────────────────────────────────── */
+.transcript-segmented {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.transcript-segment {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--border);
+}
+
+.transcript-segment__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.transcript-segment__time {
+  font-size: 11px;
+  color: var(--muted);
+  align-self: center;
+  justify-self: end;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+.transcript-segment__text {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  line-height: 1.55;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Cores por falante A→G */
+.speaker-a { border-left-color: var(--purple-500); }
+.speaker-a .transcript-segment__label { color: var(--purple-400, #c084fc); }
+
+.speaker-b { border-left-color: #14b8a6; }
+.speaker-b .transcript-segment__label { color: #2dd4bf; }
+
+.speaker-c { border-left-color: #f97316; }
+.speaker-c .transcript-segment__label { color: #fb923c; }
+
+.speaker-d { border-left-color: #8b5cf6; }
+.speaker-d .transcript-segment__label { color: #a78bfa; }
+
+.speaker-e { border-left-color: #10b981; }
+.speaker-e .transcript-segment__label { color: #34d399; }
+
+.speaker-f { border-left-color: #ec4899; }
+.speaker-f .transcript-segment__label { color: #f472b6; }
+
+.speaker-g { border-left-color: #eab308; }
+.speaker-g .transcript-segment__label { color: #facc15; }
+
 .content-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1982,15 +2162,92 @@ input[type="range"] {
 
 .toggle-row {
   display: flex !important;
-  grid-template-columns: none;
   align-items: center;
+  gap: 10px;
   min-height: 40px;
   padding: 0 2px;
+  cursor: pointer;
+  user-select: none;
 }
 
-.toggle-row span {
-  color: var(--text) !important;
-  font-size: 13px !important;
+.toggle-row > span:last-child {
+  color: var(--text);
+  font-size: 13px;
+  flex: 1;
+}
+
+/* ─── Toggle Switch ───────────────────────────────────────────────────────── */
+.sw {
+  display: inline-block;
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  transition: background 200ms, border-color 200ms;
+}
+
+.sw--on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.sw-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition: transform 200ms, background 200ms;
+}
+
+.sw--on .sw-thumb {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* ─── Segmented Control ───────────────────────────────────────────────────── */
+.seg-control {
+  display: flex;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.seg-btn {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms, color 130ms;
+  white-space: nowrap;
+}
+
+.seg-btn + .seg-btn {
+  border-left: 1px solid var(--border);
+}
+
+.seg-btn--active {
+  background: var(--accent-muted);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.seg-btn:hover:not(.seg-btn--active) {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
 }
 
 /* ─── Integrations ───────────────────────────────────────────────────────── */

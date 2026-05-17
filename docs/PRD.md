@@ -32,7 +32,7 @@ Reunioes geram informacao critica que fica dispersa entre videochamadas, convers
 - Sumarizacao obrigatoria ou sem consentimento explicito do usuario.
 - Sincronizacao multiusuario.
 - Backend remoto.
-- Diarizacao precisa de falantes.
+- Identificacao nominal ou renomeacao manual de falantes apos diarizacao.
 - Captura nativa de dispositivos e mixers complexos como OBS.
 - Integracoes reais com calendario, CRM, Slack, Teams ou Notion (Notion tem card planejado; integracao real e fase seguinte).
 - Banco SQLite completo, embora esteja previsto como evolucao.
@@ -95,6 +95,7 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 ### 6.5 Processamento local
 
 - Validacao de caminhos para FFmpeg, `whisper-cli` e modelo Whisper.
+- Diagnostico local de diarizacao para Python, `pyannote.audio` e cache do modelo HuggingFace, exibindo detalhes de erro acionaveis quando uma dependencia falha ao carregar.
 - Extracao de audio para WAV mono 16 kHz com FFmpeg.
 - Transcricao com whisper.cpp.
 - Eventos `processing-progress` para atualizar a UI em tempo real.
@@ -168,6 +169,7 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 | RF-015 | O app deve migrar persistencia para SQLite quando a biblioteca crescer. | Planejado |
 | RF-016 | O app deve detectar reunioes Google Meet abertas no Chrome e sugerir gravacao via prompt flutuante. | Implementado |
 | RF-017 | O app deve capturar audio do microfone e mixar com audio do sistema durante a gravacao. | Implementado |
+| RF-018 | O app deve identificar automaticamente os falantes na transcricao (diarizacao) via pyannote.audio local, de forma opt-in. | Implementado |
 
 ## 8. Requisitos nao funcionais
 
@@ -193,6 +195,7 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 - `recordingPath`: caminho local do video (vazio quando arquivo apagado apos upload YouTube).
 - `mimeType`: MIME original do blob gravado.
 - `transcript`: texto transcrito.
+- `transcriptSegments`: lista opcional de trechos por falante quando diarizacao estiver habilitada.
 - `summary`: resumo da transcricao gerado via OpenRouter.
 - `status`: `recorded`, `processing`, `completed` ou `error`.
 - `progressMessage`: etapa atual.
@@ -201,9 +204,16 @@ Layout em dois paineis lado a lado (lista | detalhe), ambos com altura fixa e sc
 - `youtubeVideoId`: ID do video publicado no YouTube (vazio = nao publicado).
 - `youtubeUrl`: URL publica do video YouTube (vazio = nao publicado).
 
+### TranscriptSegment
+
+- `speaker`: rotulo do falante (`A`, `B`, `C`...).
+- `text`: trecho transcrito.
+- `start`: inicio em segundos.
+- `end`: fim em segundos.
+
 ### Settings
 
-Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video, automacao de transcricao, captura de audio do sistema (`captureSystemAudio`), captura de microfone (`captureMicrophone`), deteccao de Meet (`enableMeetDetection`), configuracao de resumo (`disabled` ou `openrouter`, chave OpenRouter e modelo OpenRouter), e credenciais YouTube (`youtubeClientId`, `youtubeClientSecret`).
+Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao API, idioma, caminhos locais de FFmpeg e Whisper, threads do Whisper, presets de video, automacao de transcricao, captura de audio do sistema (`captureSystemAudio`), captura de microfone (`captureMicrophone`), deteccao de Meet (`enableMeetDetection`), diarizacao (`enableDiarization`, `diarizationNumSpeakers`, `pythonPath`, `diarizationScriptPath`, `huggingfaceToken`), configuracao de resumo (`disabled` ou `openrouter`, chave OpenRouter e modelo OpenRouter), e credenciais YouTube (`youtubeClientId`, `youtubeClientSecret`).
 
 ## 10. Fluxos principais
 
@@ -223,9 +233,10 @@ Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao A
 2. Backend marca reuniao como `processing` e emite progresso.
 3. Valida caminhos locais (FFmpeg, whisper-cli, modelo Whisper).
 4. FFmpeg extrai audio WAV mono 16 kHz.
-5. whisper.cpp gera transcricao.
-6. Backend persiste transcricao e marca status `completed`.
-7. UI recebe eventos de progresso e exibe transcricao.
+5. whisper.cpp gera transcricao em texto e JSON com timestamps.
+6. Se diarizacao estiver habilitada, backend chama `scripts/diarize.py` para associar segmentos a falantes A/B/C usando pyannote.audio.
+7. Backend persiste transcricao, segmentos de falantes quando houver, e marca status `completed`.
+8. UI recebe eventos de progresso e exibe transcricao plana ou segmentada por falante.
 
 ### Processamento hibrido
 
@@ -265,7 +276,7 @@ Inclui modo de processamento (`local`, `api`, `hybrid`), modelo de transcricao A
 - Adicionar historico de processamento e logs por reuniao.
 - Implementar importacao de videos existentes.
 - Refinar prompts e avaliacao de qualidade para sumarizacao OpenRouter.
-- Adicionar diarizacao ou identificacao manual de participantes.
+- Permitir renomeacao manual de falantes (Falante A → nome real) apos diarizacao.
 
 ### Longo prazo
 

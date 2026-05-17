@@ -16,11 +16,12 @@
 - Tray nativo no Windows com iniciar, finalizar e abrir biblioteca.
 - Transcricao sob demanda (local via whisper.cpp ou API via OpenAI).
 - Armazenamento local dos videos e metadados.
+- Diarizacao local opt-in para identificar falantes, com setup manual por Python/pyannote.
 
 ## Funcionalidades diferidas
 
 - Resumo estruturado com decisoes e proximas acoes — reintroduzido apenas via OpenRouter opt-in (ver ADR 0006).
-- Identificacao de participantes e diarizacao.
+- Identificacao nominal de participantes e edicao rica de falantes apos diarizacao.
 - Integracoes externas (calendario, Notion, CRM).
 
 ## Decisoes tecnicas

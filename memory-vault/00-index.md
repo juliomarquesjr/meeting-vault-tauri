@@ -25,6 +25,7 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - [ADR 0008](../docs/adr/0008-youtube-oauth-integration.md)
 - [ADR 0009](../docs/adr/0009-google-meet-detection.md)
 - [ADR 0010](../docs/adr/0010-microphone-capture-mix.md)
+- [ADR 0011](../docs/adr/0011-speaker-diarization.md)
 
 ## Estado rapido
 
@@ -40,3 +41,4 @@ Este vault e uma memoria operacional do projeto em Markdown, pronto para abrir n
 - Integracao Notion planejada (card visivel na tela de Integracoes, sem implementacao).
 - Deteccao automatica de Google Meet implementada: polling Win32 a cada 3s, popup always-on-top, pre-preenche titulo da gravacao.
 - Captura de microfone implementada: getUserMedia + AudioContext mixagem com audio do sistema.
+- Diarizacao local opt-in implementada via Python/pyannote.audio; ver ADR 0011 e runbook local.

@@ -8,7 +8,7 @@
 - Persistencia atual: JSON local em `app_data_dir()/store.json`.
 - Midia: videos locais em `app_data_dir()/recordings`.
 - Processamento temporario: `app_data_dir()/processing/<meeting-id>`.
-- IA local: FFmpeg e whisper.cpp.
+- IA local: FFmpeg, whisper.cpp e pyannote.audio opcional para diarizacao.
 - IA API: OpenAI opcional, usada apenas nos modos `api` e `hybrid` para transcricao.
 - Resumo API: OpenRouter opcional, usado apenas quando `summaryMode` e `openrouter`.
 
@@ -23,6 +23,8 @@ flowchart LR
   Commands --> Files["recordings/"]
   Commands --> FFmpeg["FFmpeg"]
   FFmpeg --> Whisper["whisper.cpp"]
+  Whisper --> Diarize["scripts/diarize.py"]
+  Diarize --> Pyannote["pyannote.audio"]
   Commands --> API["OpenAI API opcional"]
   Commands --> OpenRouter["OpenRouter opcional"]
   Commands --> YouTube["YouTube Data API v3"]
@@ -82,6 +84,9 @@ Comandos expostos:
 - `reveal_recording`
 - `transcribe_meeting`
 - `summarize_meeting`
+- `check_diarization_setup` — valida Python, importacao de `pyannote.audio` e cache local do modelo, retornando detalhes de erro para a UI.
+- `download_diarization_model` — baixa/cacheia `pyannote/speaker-diarization-3.1` com token HuggingFace informado pelo usuario.
+- `auto_configure_diarization` — tenta localizar Python e `scripts/diarize.py`, salvando os caminhos no `store.json`.
 
 **Gravacao em streaming (substituem `save_recording`):**
 - `begin_recording_session` — cria `<session_id>.tmp` em `recordings/`
@@ -174,6 +179,8 @@ sequenceDiagram
   Rust->>UI: processing-progress 100%
 ```
 
+Quando a diarizacao esta habilitada, o backend chama `scripts/diarize.py` apos o whisper.cpp gerar o JSON com timestamps. O diagnostico de configuracao (`check_diarization_setup`) roda antes, sob demanda na UI, e separa falhas de Python, `pyannote.audio` e cache do modelo HuggingFace para evitar mensagens genericas como "nao instalado" quando o problema real e uma dependencia Python quebrada.
+
 ## Pipeline YouTube (upload)
 
 ```mermaid
@@ -243,6 +250,7 @@ A janela principal usa `decorations: false` em `src-tauri/tauri.conf.json`, com 
 | `recordingPath` | `String` | vazio se arquivo apagado apos upload YouTube |
 | `mimeType` | `String` | |
 | `transcript` | `String` | |
+| `transcriptSegments` | `Vec<TranscriptSegment>` | segmentos por falante; vazio quando diarizacao nao rodou ou falhou |
 | `summary` | `String` | gerado via OpenRouter |
 | `status` | `String` | `recorded`, `processing`, `completed`, `error` |
 | `progressMessage` | `String` | |
